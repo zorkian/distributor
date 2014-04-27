@@ -20,8 +20,9 @@ func main() {
 
 	doQuit := make(chan bool)
 
-	setupWatcher("/Users/mark/torrents")
-	setupTracker("127.0.0.1", 6969)
+	tracker := setupTracker("127.0.0.1", 6969)
+	setupWatcher("/Users/mark/torrents", tracker)
+	setupServer("127.0.0.1", 8155)
 
 	<-doQuit
 	loginfo("distributor listening")

@@ -20,6 +20,7 @@ import (
 // Watcher is instantiated for each directory we're serving files for.
 type Watcher struct {
 	Directory string
+	Tracker   *Tracker
 	Files     map[string]*File
 	FilesLock sync.Mutex
 }
@@ -27,8 +28,9 @@ type Watcher struct {
 // File represents a single file that we are serving. These are read by other parts of the system
 // but only written by this module.
 type File struct {
-	Name     string // Base filename.
-	FullName string // Path + filename.
+	Name     string    // Base filename.
+	FullName string    // Path + filename.
+	Metadata *Metadata // Reference to our metadata.
 }
 
 // GetFile returns, given a base filename, either a pointer to a valid file structure or a nil if
@@ -38,6 +40,31 @@ func (self *Watcher) GetFile(name string) *File {
 	defer self.FilesLock.Unlock()
 
 	return self.Files[name]
+}
+
+func (self *Watcher) metadataGenerator(metaChannel chan string) {
+	// Some assumptions: We are the only writer to ever touch the Metadata record in any
+	// File object globally. We take a lock to get the file and before we do any manipulation
+	// of the structures, but otherwise we do NOT lock during the metadata generation stage since
+	// it can take a while.
+	for {
+		name := <-metaChannel
+		logdebug("Requested metadata generation for: %s", name)
+
+		file := self.GetFile(name)
+		if file == nil || file.Metadata != nil {
+			continue
+		}
+
+		md, err := GenerateMetadata(file.FullName, self.Tracker)
+		if err != nil {
+			logfatal("Failed to generate metadata: %s", err)
+		}
+
+		self.FilesLock.Lock()
+		file.Metadata = md
+		self.FilesLock.Unlock()
+	}
 }
 
 func (self *Watcher) watch() {
@@ -50,6 +77,12 @@ func (self *Watcher) watch() {
 	if err != nil {
 		logfatal("Watch: %s", err)
 	}
+
+	// The watcher is also responsible for (single-threadedly) generating metadata information
+	// for files. This is done in such a way as to make it so that files aren't available until
+	// the metadata is done.
+	metaChannel := make(chan string, 1000)
+	go self.metadataGenerator(metaChannel)
 
 	// Now do a quick backfill. We started asking for notifications, which won't tell us about old
 	// files. But we are getting notifications now so we should go backfill data for existing
@@ -70,6 +103,7 @@ func (self *Watcher) watch() {
 			Name:     name,
 			FullName: filepath.Join(self.Directory, name),
 		}
+		metaChannel <- name
 	}
 	self.FilesLock.Unlock()
 
@@ -100,6 +134,7 @@ func (self *Watcher) watch() {
 							Name:     name,
 							FullName: fqfn,
 						}
+						metaChannel <- name
 					} else if ev.IsRename() || ev.IsDelete() {
 						if !exists {
 							return
@@ -116,9 +151,10 @@ func (self *Watcher) watch() {
 }
 
 // setupWatcher creates a watcher for a given directory and starts watching it.
-func setupWatcher(dir string) *Watcher {
+func setupWatcher(dir string, tracker *Tracker) *Watcher {
 	watcher := &Watcher{
 		Directory: dir,
+		Tracker:   tracker,
 		Files:     make(map[string]*File),
 	}
 	watcher.watch()

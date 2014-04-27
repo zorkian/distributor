@@ -1,5 +1,8 @@
 /*
- * tracker.go
+ * server.go
+ *
+ * This is the HTTP server implementation that automatically generates torrent files for the
+ * files that we're serving.
  *
  * Copyright (c) 2014 by authors and contributors. Please see the included LICENSE file for
  * licensing information.
@@ -13,12 +16,11 @@ import (
 	"net"
 )
 
-type Tracker struct {
-	AnnounceURL string
-	listener    net.Listener
+type Server struct {
+	listener net.Listener
 }
 
-func (self *Tracker) handler() {
+func (self *Server) handler() {
 	for {
 		client, err := self.listener.Accept()
 		if err != nil {
@@ -31,7 +33,7 @@ func (self *Tracker) handler() {
 	}
 }
 
-func setupTracker(ip string, port int) *Tracker {
+func setupServer(ip string, port int) *Server {
 	addr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf("%s:%d", ip, port))
 	if err != nil {
 		logfatal("Resolving address: %s", err)
@@ -42,10 +44,7 @@ func setupTracker(ip string, port int) *Tracker {
 		logfatal("Listening: %s", err)
 	}
 
-	tracker := &Tracker{
-		AnnounceURL: fmt.Sprintf("http://%s:%d/", ip, port),
-		listener:    listener,
-	}
-	go tracker.handler()
-	return tracker
+	server := &Server{listener: listener}
+	go server.handler()
+	return server
 }
