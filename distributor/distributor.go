@@ -20,9 +20,14 @@ func main() {
 
 	doQuit := make(chan bool)
 
-	tracker := setupTracker("127.0.0.1", 6969)
-	setupWatcher("/Users/mark/torrents", tracker)
-	setupServer("127.0.0.1", 8155)
+	// The basic flow is that we set up a tracker, which listens on a port for HTTP requests. The
+	// tracker coordinates peers and torrent files. To each tracker we can attach a watcher, which
+	// handles monitoring of files.
+
+	watchers := []*Watcher{
+		startWatcher("/Users/mark/torrents"),
+	}
+	startTracker("127.0.0.1", 6969, watchers)
 
 	<-doQuit
 	loginfo("distributor listening")

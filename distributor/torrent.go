@@ -28,13 +28,12 @@ type Metadata struct {
 type MetadataInfo struct {
 	Name        string `name`         // Filename.
 	PieceLength int    `piece length` // Size of pieces.
-	Pieces      []byte `pieces`       // The actual pieces data.
+	Pieces      string `pieces`       // The actual pieces data.
 	Length      int64  `length`
 }
 
-// GenerateMetadata takes a file and a tracker and generates the appropriate structure for
-// that file to be served by that tracker.
-func GenerateMetadata(fqfn string, tracker *Tracker) (*Metadata, error) {
+// GenerateMetadata takes a file and generates the metadata required to serve that file.
+func GenerateMetadataInfo(fqfn string) (*MetadataInfo, error) {
 	info, err := os.Stat(fqfn)
 	if err != nil {
 		return nil, err
@@ -98,13 +97,10 @@ func GenerateMetadata(fqfn string, tracker *Tracker) (*Metadata, error) {
 	logdebug(" * First hash: %s", hex.EncodeToString(pieces[0]))
 
 	// Build and return metadata structure
-	return &Metadata{
-		Announce: tracker.AnnounceURL,
-		Info: MetadataInfo{
-			Name:        filepath.Base(fqfn),
-			PieceLength: int(pieceLength),
-			Pieces:      bytes.Join(pieces, []byte{}),
-			Length:      bytesRead,
-		},
+	return &MetadataInfo{
+		Name:        filepath.Base(fqfn),
+		PieceLength: int(pieceLength),
+		Pieces:      string(bytes.Join(pieces, []byte{})),
+		Length:      bytesRead,
 	}, nil
 }

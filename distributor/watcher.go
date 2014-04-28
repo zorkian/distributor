@@ -20,7 +20,6 @@ import (
 // Watcher is instantiated for each directory we're serving files for.
 type Watcher struct {
 	Directory string
-	Tracker   *Tracker
 	Files     map[string]*File
 	FilesLock sync.Mutex
 }
@@ -28,9 +27,9 @@ type Watcher struct {
 // File represents a single file that we are serving. These are read by other parts of the system
 // but only written by this module.
 type File struct {
-	Name     string    // Base filename.
-	FullName string    // Path + filename.
-	Metadata *Metadata // Reference to our metadata.
+	Name         string        // Base filename.
+	FullName     string        // Path + filename.
+	MetadataInfo *MetadataInfo // Reference to our metadata.
 }
 
 // GetFile returns, given a base filename, either a pointer to a valid file structure or a nil if
@@ -52,17 +51,17 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 		logdebug("Requested metadata generation for: %s", name)
 
 		file := self.GetFile(name)
-		if file == nil || file.Metadata != nil {
+		if file == nil || file.MetadataInfo != nil {
 			continue
 		}
 
-		md, err := GenerateMetadata(file.FullName, self.Tracker)
+		mdinfo, err := GenerateMetadataInfo(file.FullName)
 		if err != nil {
 			logfatal("Failed to generate metadata: %s", err)
 		}
 
 		self.FilesLock.Lock()
-		file.Metadata = md
+		file.MetadataInfo = mdinfo
 		self.FilesLock.Unlock()
 	}
 }
@@ -150,13 +149,13 @@ func (self *Watcher) watch() {
 	}()
 }
 
-// setupWatcher creates a watcher for a given directory and starts watching it.
-func setupWatcher(dir string, tracker *Tracker) *Watcher {
+// startWatcher creates a watcher for a given directory and starts watching it.
+func startWatcher(dir string) *Watcher {
 	watcher := &Watcher{
 		Directory: dir,
-		Tracker:   tracker,
 		Files:     make(map[string]*File),
 	}
 	watcher.watch()
+
 	return watcher
 }
