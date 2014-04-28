@@ -124,7 +124,7 @@ func (self *Watcher) watch() {
 		if file.IsDir() || strings.HasPrefix(name, ".") {
 			continue
 		}
-		logdebug("File appeared: %s", name)
+		logdebug("File discovered: %s", name)
 		self.Files[name] = &File{
 			Name:     name,
 			FullName: filepath.Join(self.Directory, name),
@@ -155,7 +155,9 @@ func (self *Watcher) watch() {
 						if strings.HasPrefix(name, ".") || info.IsDir() {
 							return
 						}
-						logdebug("File appeared: %s", name)
+						if !exists {
+							logdebug("File discovered: %s", name)
+						}
 						self.Files[name] = &File{
 							Name:     name,
 							FullName: fqfn,

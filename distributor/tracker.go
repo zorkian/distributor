@@ -13,6 +13,8 @@ package main
 
 import (
 	bencode "code.google.com/p/bencode-go"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -42,7 +44,8 @@ type Tracker struct {
 	// We keep a separate set of peers for each info_hash. We don't actually verify that these
 	// hashes are valid; so there's a pretty easy DoS here. This system is designed to be used
 	// in a production environment with good actors. TODO: harden.
-	PeerList     map[string][]Peer
+	// TODO: We need a way of droppign peers that have not reported in a while.
+	PeerList     map[string]map[string]Peer
 	peerListLock sync.Mutex
 
 	// Lock used by all methods that affect the seed process.
@@ -100,6 +103,8 @@ func (self *Tracker) startSeed(file *File, metadata *Metadata) {
 	file.SeedCommand = exec.Command("/usr/local/bin/ctorrent", "-s", file.FullName,
 		"-e", "4", tmp.Name())
 	self.seedStartLock.Unlock()
+
+	// TODO: Read from output pipes, because they could fill up?
 
 	go func() {
 		logdebug("Seed starting: %s", file.Name)
@@ -161,15 +166,14 @@ func (self *Tracker) handleServe(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleAnnounce is the endpoint for torrent clients to announce themselves and request
-// other peers.
-func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
-	logdebug("Request: %s", r.URL.RequestURI())
+// parsePeer extracts a Peer structure from a query string.
+func parsePeer(r *http.Request) (string, *Peer, error) {
 	values := r.URL.Query()
 
 	var info_hash, peer_id, ip, strport []string
 	ok := true
 
+	// I don't know how to make this cleaner in Go. Halp. :-(
 	info_hash, ok = values["info_hash"]
 	if ok && len(info_hash) == 1 {
 		peer_id, ok = values["peer_id"]
@@ -178,8 +182,7 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 		strport, ok = values["port"]
 	}
 	if !ok {
-		io.WriteString(w, "missing required argument")
-		return
+		return "", nil, errors.New("missing required argument")
 	}
 
 	ip, ok = values["ip"]
@@ -194,45 +197,58 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 
 	port, err := strconv.ParseUint(strport[0], 10, 16)
 	if err != nil {
-		io.WriteString(w, "port invalid")
+		return "", nil, errors.New("port invalid")
+	}
+
+	return info_hash[0], &Peer{
+		Id:   peer_id[0],
+		Ip:   ip[0],
+		Port: uint16(port),
+	}, nil
+}
+
+// handleAnnounce is the endpoint for torrent clients to announce themselves and request
+// other peers.
+func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
+	info_hash, peer, err := parsePeer(r)
+	if err != nil {
+		io.WriteString(w, err.Error())
 		return
 	}
+	logdebug("Request from peer at %s:%d.", peer.Ip, peer.Port)
 
 	// Do this now since we're validated our inputs.
 	self.peerListLock.Lock()
 	defer self.peerListLock.Unlock()
 
-	peers, ok := self.PeerList[info_hash[0]]
+	peers, ok := self.PeerList[info_hash]
 	if !ok {
-		peers = make([]Peer, 0, 100)
+		peers = make(map[string]Peer)
+		self.PeerList[info_hash] = peers
+	}
+
+	// Add this peer to the set if they don't exist.
+	if _, ok := peers[peer.Id]; !ok {
+		peers[peer.Id] = *peer
 	}
 
 	// We give the user back 50 random peers by just picking a window into our peer list.
 	ct := 0
 	outPeers := make([]Peer, 0, 50)
-	for _, peer := range peers {
-		outPeers = append(outPeers, peer)
+	for _, tmpPeer := range peers {
+		if tmpPeer.Ip == peer.Ip {
+			// This helps avoid giving peers connections to their own machine, which seems
+			// to confuse ctorrent. It seems to mostly affect small clusters.
+			continue
+		}
+
+		outPeers = append(outPeers, tmpPeer)
+		logdebug("[%s:%d] %s", peer.Ip, peer.Port, hex.EncodeToString([]byte(tmpPeer.Id)))
 		if ct++; ct >= cap(outPeers) {
 			break
 		}
 	}
-
-	// Now that we have our return set, let's add this peer to the list.
-	newPeer := Peer{
-		Id:   peer_id[0],
-		Ip:   ip[0],
-		Port: uint16(port),
-	}
-	peers = append(peers, newPeer)
-
-	// If the list is >1000 then chop it down to 100. This should give us a reasonable
-	// (in)frequency for this operation.
-	if len(peers) > 1000 {
-		peers = peers[900:]
-	}
-	self.PeerList[info_hash[0]] = peers
-
-	logdebug("Giving peer at %s:%d a list of %d peers.", newPeer.Ip, newPeer.Port, len(outPeers))
+	logdebug("Giving peer %s:%d a list of %d peers.", peer.Ip, peer.Port, len(outPeers))
 
 	// Build the output dictionary and return it.
 	err = bencode.Marshal(w, PeerResponse{Interval: 60, Peers: outPeers})
@@ -245,7 +261,7 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 func startTracker(ip string, port int, watchers []*Watcher) *Tracker {
 	tracker := &Tracker{
 		AnnounceURL: fmt.Sprintf("http://%s:%d/announce", ip, port),
-		PeerList:    make(map[string][]Peer),
+		PeerList:    make(map[string]map[string]Peer),
 		watchers:    watchers,
 	}
 
