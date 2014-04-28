@@ -29,6 +29,7 @@ type Watcher struct {
 type File struct {
 	Name         string        // Base filename.
 	FullName     string        // Path + filename.
+	Size         int64         // File size.
 	MetadataInfo *MetadataInfo // Reference to our metadata.
 }
 
@@ -48,10 +49,21 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 	// it can take a while.
 	for {
 		name := <-metaChannel
-		logdebug("Requested metadata generation for: %s", name)
+		//logdebug("Requested metadata generation for: %s", name)
 
 		file := self.GetFile(name)
-		if file == nil || file.MetadataInfo != nil {
+		if file == nil {
+			continue
+		}
+
+		info, err := os.Stat(file.FullName)
+		if err != nil {
+			logerror("Failed to stat %s: %s", file.FullName, err)
+			continue
+		}
+
+		// If we already have metadata, we also want to check if the size is the same.
+		if file.MetadataInfo != nil && file.Size == info.Size() {
 			continue
 		}
 
@@ -60,7 +72,20 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 			logfatal("Failed to generate metadata: %s", err)
 		}
 
+		info2, err := os.Stat(file.FullName)
+		if err != nil {
+			logerror("Failed to stat %s: %s", file.FullName, err)
+			continue
+		}
+
+		if info.Size() != info2.Size() {
+			logerror("File changed sizes while generating metadata. Requeuing.")
+			metaChannel <- name
+			continue
+		}
+
 		self.FilesLock.Lock()
+		file.Size = info.Size()
 		file.MetadataInfo = mdinfo
 		self.FilesLock.Unlock()
 	}
@@ -111,7 +136,7 @@ func (self *Watcher) watch() {
 		for {
 			select {
 			case ev := <-watcher.Event:
-				logdebug("Watcher event: %s", ev)
+				//logdebug("Watcher event: %s", ev)
 				func() {
 					self.FilesLock.Lock()
 					defer self.FilesLock.Unlock()
