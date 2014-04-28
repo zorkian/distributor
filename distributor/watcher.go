@@ -12,6 +12,7 @@ import (
 	"github.com/howeyc/fsnotify"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -31,6 +32,7 @@ type File struct {
 	FullName     string        // Path + filename.
 	Size         int64         // File size.
 	MetadataInfo *MetadataInfo // Reference to our metadata.
+	SeedCommand  *exec.Cmd     // Owned by the Tracker methods.
 }
 
 // GetFile returns, given a base filename, either a pointer to a valid file structure or a nil if

@@ -15,7 +15,10 @@ import (
 	bencode "code.google.com/p/bencode-go"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,6 +45,9 @@ type Tracker struct {
 	PeerList     map[string][]Peer
 	peerListLock sync.Mutex
 
+	// Lock used by all methods that affect the seed process.
+	seedStartLock sync.Mutex
+
 	// Careful: there is no locking here. It's assumed that the only time this is
 	// written is from the very initial setup of the app and never during runtime. If that
 	// changes we'll need locking. (This may actually be technically a little racy right
@@ -62,6 +68,55 @@ func (self *Tracker) findFile(name string) *File {
 	return nil
 }
 
+// startSeed attempts to start up a seeding process for a given torrent file.
+func (self *Tracker) startSeed(file *File, metadata *Metadata) {
+	self.seedStartLock.Lock()
+
+	if file.SeedCommand != nil {
+		self.seedStartLock.Unlock()
+		return
+	}
+
+	tmp, err := ioutil.TempFile("", "distributor.")
+	if err != nil {
+		logfatal("TempFile failed: %s", err)
+	}
+	logdebug("Temporary file for %s: %s", file.Name, tmp.Name())
+
+	err = bencode.Marshal(tmp, *metadata)
+	if err != nil {
+		self.seedStartLock.Unlock()
+		logerror("Failed to bencode %s: %s", file.Name, err)
+		return
+	}
+
+	err = tmp.Sync()
+	if err != nil {
+		self.seedStartLock.Unlock()
+		logerror("Failed to fsync: %s", err)
+		return
+	}
+
+	file.SeedCommand = exec.Command("/usr/local/bin/ctorrent", "-s", file.FullName,
+		"-e", "4", tmp.Name())
+	self.seedStartLock.Unlock()
+
+	go func() {
+		logdebug("Seed starting: %s", file.Name)
+		file.SeedCommand.Run()
+		logdebug("Seed exited: %s", file.Name)
+
+		// Try to clean up temporary file.
+		tmp.Close()
+		os.Remove(tmp.Name())
+
+		// Seeds exit after 4 hours. Then they get restarted if someone requests them.
+		self.seedStartLock.Lock()
+		file.SeedCommand = nil
+		self.seedStartLock.Unlock()
+	}()
+}
+
 // handleServe is the endpoint that is responsible for generating torrent files and giving them
 // out to the requestors.
 // TODO: how to return 404 etc from here?
@@ -79,6 +134,15 @@ func (self *Tracker) handleServe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	md := Metadata{
+		Announce: self.AnnounceURL,
+		Info:     *file.MetadataInfo,
+	}
+
+	if file.SeedCommand == nil {
+		self.startSeed(file, &md)
+	}
+
 	for {
 		// TODO: This could run infinitely in a case where the file is requested and deleted or
 		// replaced, so we keep checking a structure that never will get filled in since it's no
@@ -89,11 +153,6 @@ func (self *Tracker) handleServe(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		break
-	}
-
-	md := Metadata{
-		Announce: self.AnnounceURL,
-		Info:     *file.MetadataInfo,
 	}
 
 	err := bencode.Marshal(w, md)
