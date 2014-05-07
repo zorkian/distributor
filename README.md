@@ -28,9 +28,9 @@ files.
 
 It's pretty straightforward:
 
-1. Create a directory where you want to place files to serve. All files
-must (presently) be in the root directory; subdirectories are not
-supported.
+1. Create a directory where you want to place files to serve. All
+subdirectories will be watched for files, too, so you can create a nested
+structure if you wish.
 
 2. Start up distributor and point it at this directory. It will start
 hashing files, calculating metadata, and you're ready to go.

@@ -10,7 +10,6 @@ package main
 
 import (
 	"github.com/howeyc/fsnotify"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,8 +19,9 @@ import (
 
 // Watcher is instantiated for each directory we're serving files for.
 type Watcher struct {
+	Watcher   *fsnotify.Watcher
 	Directory string
-	Files     map[string]*File
+	Files     map[string]*File // FQFN as key.
 	FilesLock sync.Mutex
 }
 
@@ -29,14 +29,14 @@ type Watcher struct {
 // but only written by this module.
 type File struct {
 	Name         string        // Base filename.
-	FullName     string        // Path + filename.
+	FQFN         string        // Path + filename.
 	Size         int64         // File size.
 	MetadataInfo *MetadataInfo // Reference to our metadata.
 	SeedCommand  *exec.Cmd     // Owned by the Tracker methods.
 }
 
-// GetFile returns, given a base filename, either a pointer to a valid file structure or a nil if
-// there is no file with that name.
+// GetFile returns, given a full path filename, either a pointer to a valid file structure or a
+// nil if there is no file with that name.
 func (self *Watcher) GetFile(name string) *File {
 	self.FilesLock.Lock()
 	defer self.FilesLock.Unlock()
@@ -50,17 +50,17 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 	// of the structures, but otherwise we do NOT lock during the metadata generation stage since
 	// it can take a while.
 	for {
-		name := <-metaChannel
-		//logdebug("Requested metadata generation for: %s", name)
+		localfn := <-metaChannel
+		//logdebug("Requested metadata generation for: %s", localfn)
 
-		file := self.GetFile(name)
+		file := self.GetFile(localfn)
 		if file == nil {
 			continue
 		}
 
-		info, err := os.Stat(file.FullName)
+		info, err := os.Stat(file.FQFN)
 		if err != nil {
-			logerror("Failed to stat %s: %s", file.FullName, err)
+			logerror("Failed to stat %s: %s", file.FQFN, err)
 			continue
 		}
 
@@ -69,20 +69,20 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 			continue
 		}
 
-		mdinfo, err := GenerateMetadataInfo(file.FullName)
+		mdinfo, err := GenerateMetadataInfo(file.FQFN)
 		if err != nil {
 			logfatal("Failed to generate metadata: %s", err)
 		}
 
-		info2, err := os.Stat(file.FullName)
+		info2, err := os.Stat(file.FQFN)
 		if err != nil {
-			logerror("Failed to stat %s: %s", file.FullName, err)
+			logerror("Failed to stat %s: %s", file.FQFN, err)
 			continue
 		}
 
 		if info.Size() != info2.Size() {
 			logerror("File changed sizes while generating metadata. Requeuing.")
-			metaChannel <- name
+			metaChannel <- localfn
 			continue
 		}
 
@@ -93,98 +93,112 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 	}
 }
 
-func (self *Watcher) watch() {
-	// Set up fsnotify watcher.
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		logfatal("NewWatcher: %s", err)
-	}
-	err = watcher.Watch(self.Directory)
-	if err != nil {
-		logfatal("Watch: %s", err)
-	}
-
+func (self *Watcher) updateChannelHandler(updates chan string) {
 	// The watcher is also responsible for (single-threadedly) generating metadata information
 	// for files. This is done in such a way as to make it so that files aren't available until
 	// the metadata is done.
 	metaChannel := make(chan string, 1000)
 	go self.metadataGenerator(metaChannel)
 
-	// Now do a quick backfill. We started asking for notifications, which won't tell us about old
-	// files. But we are getting notifications now so we should go backfill data for existing
-	// files and THEN start listening for updates. Avoids a possible race.
-	self.FilesLock.Lock()
-	files, err := ioutil.ReadDir(self.Directory)
-	if err != nil {
-		self.FilesLock.Unlock()
-		logfatal("ReadDir: %s", err)
-	}
-	for _, file := range files {
-		name := file.Name()
-		if file.IsDir() || strings.HasPrefix(name, ".") {
+	for {
+		fqfn := <-updates
+
+		if !strings.HasPrefix(fqfn, self.Directory) {
+			logerror("File %s not in watched dir %s!", fqfn, self.Directory)
 			continue
 		}
-		logdebug("File discovered: %s", name)
-		self.Files[name] = &File{
-			Name:     name,
-			FullName: filepath.Join(self.Directory, name),
-		}
-		metaChannel <- name
+		localfn := fqfn[len(self.Directory)+1:]
+
+		func() {
+			self.FilesLock.Lock()
+			defer self.FilesLock.Unlock()
+
+			info, _ := os.Stat(fqfn)
+			_, exists := self.Files[localfn]
+			name := filepath.Base(fqfn)
+
+			if exists && info == nil {
+				// Deleted files.
+				logdebug("File removed: %s", fqfn)
+				delete(self.Files, fqfn)
+
+			} else if !exists && info != nil {
+				// New file found, watch it or add it to our list.
+				if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".pieces") {
+					return
+				}
+
+				// Directories get walked, files just get added.
+				if info.IsDir() {
+					go self.walkAndWatch(fqfn, updates)
+				} else {
+					logdebug("File discovered: %s", localfn)
+					self.Files[localfn] = &File{
+						Name: name,
+						FQFN: fqfn,
+					}
+					metaChannel <- localfn
+				}
+			}
+		}()
 	}
-	self.FilesLock.Unlock()
+}
+
+func (self *Watcher) walkAndWatch(dir string, updates chan string) {
+	logdebug("Walking directory: %s", dir)
+	filepath.Walk(dir, func(fqfn string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			loginfo("Watching directory: %s", fqfn)
+			if err := self.Watcher.Watch(fqfn); err != nil {
+				logfatal("Watch: %s", err)
+			}
+		} else {
+			updates <- fqfn
+		}
+		return nil
+	})
+}
+
+func (self *Watcher) watch() {
+	// Set up our change channel. This is sent notifications whenever a file event has happened,
+	// and it's responsible for updating local status.
+	updateChannel := make(chan string, 1000)
+	go self.updateChannelHandler(updateChannel)
+
+	// Walks a directory and watches everything in it.
+	self.walkAndWatch(self.Directory, updateChannel)
 
 	// This is the main goroutine that actually processes events.
-	go func() {
-		for {
-			select {
-			case ev := <-watcher.Event:
-				//logdebug("Watcher event: %s", ev)
-				func() {
-					self.FilesLock.Lock()
-					defer self.FilesLock.Unlock()
-
-					name := filepath.Base(ev.Name)
-					fqfn := filepath.Join(self.Directory, name)
-					info, _ := os.Stat(fqfn)
-					_, exists := self.Files[name]
-
-					// We consider modify/attrib updates to also be the same as create, since I've
-					// seen at least BSD compress multiple operations into a single call that does
-					// not include CREATE. (Happened when testing watching an rsync target.)
-					if ev.IsCreate() || ev.IsModify() || ev.IsAttrib() {
-						if strings.HasPrefix(name, ".") || info.IsDir() {
-							return
-						}
-						if !exists {
-							logdebug("File discovered: %s", name)
-						}
-						self.Files[name] = &File{
-							Name:     name,
-							FullName: fqfn,
-						}
-						metaChannel <- name
-					} else if ev.IsRename() || ev.IsDelete() {
-						if !exists {
-							return
-						}
-						logdebug("File gone: %s", name)
-						delete(self.Files, name)
-					}
-				}()
-			case err := <-watcher.Error:
-				logfatal("Watcher error: %s", err)
-			}
+	for {
+		select {
+		case ev := <-self.Watcher.Event:
+			// Regardless of what the event is, just let the update channel know something has
+			// updated. It can infer what it needs to do based on the present state.
+			updateChannel <- ev.Name
+		case err := <-self.Watcher.Error:
+			logfatal("Watcher error: %s", err)
 		}
-	}()
+	}
+	logfatal("Watcher exited unexpectedly.")
 }
 
 // startWatcher creates a watcher for a given directory and starts watching it.
 func startWatcher(dir string) *Watcher {
+	// Set up fsnotify watcher.
+	fswatcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		logfatal("NewWatcher: %s", err)
+	}
+
 	watcher := &Watcher{
+		Watcher:   fswatcher,
 		Directory: dir,
 		Files:     make(map[string]*File),
 	}
-	watcher.watch()
+	go watcher.watch()
 
 	return watcher
 }

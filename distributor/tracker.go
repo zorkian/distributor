@@ -59,12 +59,11 @@ type Tracker struct {
 	watchers []*Watcher // List of watchers who might have files.
 }
 
-// findFile searches all of our watchers for a given filename (base name). If found, it returns
+// findFile searches all of our watchers for a given filename (FQFN). If found, it returns
 // the pointer to the File structure representing this file.
 func (self *Tracker) findFile(name string) *File {
 	for _, watcher := range self.watchers {
-		file := watcher.GetFile(name)
-		if file != nil {
+		if file := watcher.GetFile(name); file != nil {
 			return file
 		}
 	}
@@ -100,7 +99,7 @@ func (self *Tracker) startSeed(file *File, metadata *Metadata) {
 		return
 	}
 
-	file.SeedCommand = exec.Command("/usr/local/bin/ctorrent", "-s", file.FullName,
+	file.SeedCommand = exec.Command("/usr/local/bin/ctorrent", "-s", file.FQFN,
 		"-e", "4", tmp.Name())
 	self.seedStartLock.Unlock()
 
