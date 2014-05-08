@@ -15,6 +15,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"io"
+	"io/ioutil"
 	"math"
 	"os"
 	"path/filepath"
@@ -43,6 +44,7 @@ func GenerateMetadataInfo(fqfn string) (*MetadataInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer file.Close()
 
 	// Sometimes we get 0 length files to begin with. In those cases, do nothing. It's also
 	// not considered an error.
@@ -57,50 +59,80 @@ func GenerateMetadataInfo(fqfn string) (*MetadataInfo, error) {
 	pieceCount := int(math.Ceil(float64(info.Size()) / float64(pieceLength)))
 	pieces := make([][]byte, 0, pieceCount)
 
-	// Calculate the SHA1 string by chunking the file.
-	buf := make([]byte, pieceLength)
-	bytesRead, fileSize := int64(0), info.Size()
-	for {
-		bytesToRead := fileSize - bytesRead
-		if bytesToRead > pieceLength {
-			bytesToRead = pieceLength
+	// See if we've already cached this file's hash information.
+	use_cache := false
+	cache_bytes := []byte{}
+	cache_fqfn := fqfn + ".mdcache"
+	cache_info, err := os.Stat(cache_fqfn)
+	if err == nil && cache_info != nil {
+		cache_bytes, err = ioutil.ReadFile(cache_fqfn)
+		if err == nil {
+			logdebug("Loaded %d cached bytes from %s.", len(cache_bytes), cache_fqfn)
+			if len(cache_bytes) != pieceCount*20 {
+				logerror("Cache invalid: length does not match expected size!")
+			} else {
+				use_cache = true
+			}
 		}
-		if bytesToRead == 0 {
-			break
-		}
-
-		n, err := io.ReadAtLeast(file, buf, int(bytesToRead))
-		if n == 0 && err == io.EOF {
-			break
-		} else if err != nil {
-			logfatal("Failed to read: %s", err)
-		}
-
-		hash := sha1.New()
-		nw, err := hash.Write(buf[:n])
-		if err != nil {
-			logfatal("Failed to hash: %s", err)
-		} else if nw != n {
-			logfatal("Failed to write to hash; %d != %d", n, nw)
-		}
-		pieces = append(pieces, hash.Sum(nil))
-		bytesRead += int64(n)
 	}
 
-	// Final sanity check: bytesRead should exactly equal the file size.
-	if int64(bytesRead) != info.Size() {
-		logfatal("Read %d, size %d... mismatch!", bytesRead, info.Size())
+	// If we had a cache, break it into the pieces.
+	if use_cache {
+		for i := 0; i < pieceCount; i++ {
+			idx := i * 20
+			pieces = append(pieces, cache_bytes[idx:idx+20])
+		}
+	} else {
+		// Calculate the SHA1 string by chunking the file.
+		buf := make([]byte, pieceLength)
+		bytesRead, fileSize := int64(0), info.Size()
+		for {
+			bytesToRead := fileSize - bytesRead
+			if bytesToRead > pieceLength {
+				bytesToRead = pieceLength
+			}
+			if bytesToRead == 0 {
+				break
+			}
+
+			n, err := io.ReadAtLeast(file, buf, int(bytesToRead))
+			if n == 0 && err == io.EOF {
+				break
+			} else if err != nil {
+				logfatal("Failed to read: %s", err)
+			}
+
+			hash := sha1.New()
+			nw, err := hash.Write(buf[:n])
+			if err != nil {
+				logfatal("Failed to hash: %s", err)
+			} else if nw != n {
+				logfatal("Failed to write to hash; %d != %d", n, nw)
+			}
+			pieces = append(pieces, hash.Sum(nil))
+			bytesRead += int64(n)
+		}
+
+		// Final sanity check: bytesRead should exactly equal the file size.
+		if int64(bytesRead) != info.Size() {
+			logfatal("Read %d, size %d... mismatch!", bytesRead, info.Size())
+		}
+
+		// Write out cache file.
+		if err := ioutil.WriteFile(cache_fqfn, bytes.Join(pieces, []byte{}), 0644); err != nil {
+			logerror("Failed to write cache file: %s", err)
+		}
 	}
 
-	logdebug("Generated metadata for %s:", fqfn)
+	logdebug("Generated (or cached) metadata for %s:", fqfn)
 	logdebug(" * Pieces:     %d * %d bytes", pieceCount, pieceLength)
 	logdebug(" * First hash: %s", hex.EncodeToString(pieces[0]))
 
-	// Build and return metadata structure
+	// Build and return metadata structure, after caching it.
 	return &MetadataInfo{
 		Name:        filepath.Base(fqfn),
 		PieceLength: int(pieceLength),
 		Pieces:      string(bytes.Join(pieces, []byte{})),
-		Length:      bytesRead,
+		Length:      info.Size(),
 	}, nil
 }

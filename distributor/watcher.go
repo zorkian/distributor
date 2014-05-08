@@ -124,7 +124,7 @@ func (self *Watcher) updateChannelHandler(updates chan string) {
 
 			} else if !exists && info != nil {
 				// New file found, watch it or add it to our list.
-				if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".pieces") {
+				if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".mdcache") {
 					return
 				}
 

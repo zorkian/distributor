@@ -13,6 +13,7 @@ package main
 import (
 	"flag"
 	"os"
+	"path/filepath"
 )
 
 // 2 = debug, 1 = verbose, 0 = normal
@@ -25,9 +26,14 @@ func main() {
 	dir := flag.String("serve", "/var/www", "Directory to serve files from")
 	flag.Parse()
 
-	if _, err := os.Stat(*dir); err != nil {
+	info, err := os.Stat(*dir)
+	if err != nil {
 		logfatal("-serve does not exist: %s", err)
 	}
+	if !info.IsDir() {
+		logfatal("-serve is not a directory")
+	}
+	*dir = filepath.Clean(*dir) // Canonicalize.
 
 	if *debug {
 		VERBOSITY = 2
