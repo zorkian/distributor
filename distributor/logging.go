@@ -13,7 +13,7 @@ import (
 )
 
 func loginfo(fmt string, args ...interface{}) {
-	if verbose >= 1 {
+	if VERBOSITY >= 1 {
 		log.Printf("[INFO] "+fmt, args...)
 	}
 }
@@ -31,7 +31,7 @@ func logfatal(fmt string, args ...interface{}) {
 }
 
 func logdebug(fmt string, args ...interface{}) {
-	if verbose >= 2 {
+	if VERBOSITY >= 2 {
 		log.Printf("[DEBUG] "+fmt, args...)
 	}
 }
