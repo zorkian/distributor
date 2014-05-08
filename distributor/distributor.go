@@ -22,6 +22,7 @@ var VERBOSITY uint32 = 0
 func main() {
 	verbose := flag.Bool("verbose", false, "Verbose mode (extra output)")
 	debug := flag.Bool("debug", false, "Extra verbose (debugging output)")
+	listen := flag.String("listen", "127.0.0.1", "IP address to bind to for serving")
 	port := flag.Int("port", 6390, "Port to serve tracker/torrents on")
 	dir := flag.String("serve", "/var/www", "Directory to serve files from")
 	flag.Parse()
@@ -53,8 +54,8 @@ func main() {
 	watchers := []*Watcher{
 		startWatcher(*dir),
 	}
-	startTracker("127.0.0.1", *port, watchers)
+	startTracker(*listen, *port, watchers)
 
-	loginfo("distributing %s on port %d", *dir, *port)
+	loginfo("distributing %s on %s:%d", *dir, *listen, *port)
 	<-doQuit
 }
