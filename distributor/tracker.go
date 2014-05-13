@@ -18,7 +18,9 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -166,22 +168,17 @@ func (self *Tracker) handleServe(w http.ResponseWriter, r *http.Request) {
 }
 
 // parsePeer extracts a Peer structure from a query string.
-func parsePeer(r *http.Request) (string, *Peer, error) {
-	values := r.URL.Query()
-
-	var info_hash, peer_id, ip, strport []string
+func parsePeer(r *http.Request, values url.Values) (*Peer, error) {
+	var peer_id, ip, strport []string
 	ok := true
 
 	// I don't know how to make this cleaner in Go. Halp. :-(
-	info_hash, ok = values["info_hash"]
-	if ok && len(info_hash) == 1 {
-		peer_id, ok = values["peer_id"]
-	}
+	peer_id, ok = values["peer_id"]
 	if ok && len(peer_id) == 1 {
 		strport, ok = values["port"]
 	}
 	if !ok {
-		return "", nil, errors.New("missing required argument")
+		return nil, errors.New("missing required argument")
 	}
 
 	ip, ok = values["ip"]
@@ -196,10 +193,10 @@ func parsePeer(r *http.Request) (string, *Peer, error) {
 
 	port, err := strconv.ParseUint(strport[0], 10, 16)
 	if err != nil {
-		return "", nil, errors.New("port invalid")
+		return nil, errors.New("port invalid")
 	}
 
-	return info_hash[0], &Peer{
+	return &Peer{
 		Id:   peer_id[0],
 		Ip:   ip[0],
 		Port: uint16(port),
@@ -209,14 +206,35 @@ func parsePeer(r *http.Request) (string, *Peer, error) {
 // handleAnnounce is the endpoint for torrent clients to announce themselves and request
 // other peers.
 func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
-	info_hash, peer, err := parsePeer(r)
+	values := r.URL.Query()
+
+	peer, err := parsePeer(r, values)
 	if err != nil {
 		io.WriteString(w, err.Error())
 		return
 	}
 	logdebug("Request from peer at %s:%d.", peer.Ip, peer.Port)
 
-	// Do this now since we're validated our inputs.
+	// Get other arguments and validate them.
+	var info_hash string
+	if info_hash_list, ok := values["info_hash"]; ok && len(info_hash_list) == 1 {
+		info_hash = info_hash_list[0]
+	}
+
+	var event string
+	if event_list, ok := values["event"]; ok && len(event_list) == 1 {
+		event = event_list[0]
+	}
+
+	var numwant int
+	if numwant_list, ok := values["numwant"]; ok && len(numwant_list) == 1 {
+		numwant, err := strconv.ParseUint(numwant_list[0], 10, 8)
+		if err != nil || numwant > 100 {
+			numwant = 100
+		}
+	}
+
+	// Lock this now since we're validated our inputs.
 	self.peerListLock.Lock()
 	defer self.peerListLock.Unlock()
 
@@ -226,31 +244,50 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 		self.PeerList[info_hash] = peers
 	}
 
-	// Add this peer to the set if they don't exist.
+	// Add this peer to the set if they don't exist, plus possibly purge other peers on this IP.
 	if _, ok := peers[peer.Id]; !ok {
+		// Remove any other peers on this IP address. This is kind of a hack since we don't have
+		// "last reported time" at the moment. If a new peer starts up on a host, then we remove
+		// the other one.
+		toRemove := make([]string, 0, 2)
+		for id, tmpPeer := range peers {
+			if tmpPeer.Ip == peer.Ip {
+				toRemove = append(toRemove, id)
+			}
+		}
+		for _, id := range toRemove {
+			delete(peers, id)
+		}
+
+		// Finally insert this new peer.
 		peers[peer.Id] = *peer
 	}
 
-	// We give the user back 50 random peers by just picking a window into our peer list.
+	// If they're stopping, then remove this peer from the valid list.
+	if event == "stopped" {
+		delete(peers, peer.Id)
+	}
+
+	// We give the user back N random peers by just picking a window into our peer list.
 	ct := 0
-	outPeers := make([]Peer, 0, 50)
+	outPeers := make([]Peer, 0, numwant)
 	for _, tmpPeer := range peers {
+		if ct++; ct > cap(outPeers) {
+			break
+		}
+
 		if tmpPeer.Ip == peer.Ip {
 			// This helps avoid giving peers connections to their own machine, which seems
 			// to confuse ctorrent. It seems to mostly affect small clusters.
 			continue
 		}
-
 		outPeers = append(outPeers, tmpPeer)
 		logdebug("[%s:%d] %s", peer.Ip, peer.Port, hex.EncodeToString([]byte(tmpPeer.Id)))
-		if ct++; ct >= cap(outPeers) {
-			break
-		}
 	}
-	logdebug("Giving peer %s:%d a list of %d peers.", peer.Ip, peer.Port, len(outPeers))
+	loginfo("Giving peer %s:%d a list of %d peers.", peer.Ip, peer.Port, len(outPeers))
 
 	// Build the output dictionary and return it.
-	err = bencode.Marshal(w, PeerResponse{Interval: 60, Peers: outPeers})
+	err = bencode.Marshal(w, PeerResponse{Interval: rand.Intn(30) + 30, Peers: outPeers})
 	if err != nil {
 		logerror("Failed to bencode: %s", err)
 	}
