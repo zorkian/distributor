@@ -179,7 +179,7 @@ func (self *Watcher) watch() {
 			// updated. It can infer what it needs to do based on the present state.
 			updateChannel <- ev.Name
 		case err := <-self.Watcher.Error:
-			logfatal("Watcher error: %s", err)
+			logerror("Watcher error: %s", err)
 		}
 	}
 	logfatal("Watcher exited unexpectedly.")

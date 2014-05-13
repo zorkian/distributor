@@ -13,7 +13,6 @@ package main
 
 import (
 	bencode "code.google.com/p/bencode-go"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -226,12 +225,14 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 		event = event_list[0]
 	}
 
-	var numwant int
+	var numwant uint64
 	if numwant_list, ok := values["numwant"]; ok && len(numwant_list) == 1 {
-		numwant, err := strconv.ParseUint(numwant_list[0], 10, 8)
+		numwant, err = strconv.ParseUint(numwant_list[0], 10, 8)
 		if err != nil || numwant > 100 {
 			numwant = 100
 		}
+	} else {
+		numwant = 50
 	}
 
 	// Lock this now since we're validated our inputs.
@@ -265,6 +266,7 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 
 	// If they're stopping, then remove this peer from the valid list.
 	if event == "stopped" {
+		loginfo("Peer %s:%d is leaving the swarm.", peer.Ip, peer.Port)
 		delete(peers, peer.Id)
 	}
 
@@ -282,7 +284,7 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		outPeers = append(outPeers, tmpPeer)
-		logdebug("[%s:%d] %s", peer.Ip, peer.Port, hex.EncodeToString([]byte(tmpPeer.Id)))
+		logdebug("[%s:%d] peer %s:%d", peer.Ip, peer.Port, tmpPeer.Ip, tmpPeer.Port)
 	}
 	loginfo("Giving peer %s:%d a list of %d peers.", peer.Ip, peer.Port, len(outPeers))
 
