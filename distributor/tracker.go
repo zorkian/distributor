@@ -100,8 +100,7 @@ func (self *Tracker) startSeed(file *File, metadata *Metadata) {
 		return
 	}
 
-	file.SeedCommand = exec.Command("/usr/local/bin/ctorrent", "-s", file.FQFN,
-		"-e", "4", tmp.Name())
+	file.SeedCommand = exec.Command(CTORRENT, "-s", file.FQFN, "-e", "4", tmp.Name())
 	self.seedStartLock.Unlock()
 
 	// TODO: Read from output pipes, because they could fill up?
@@ -250,9 +249,14 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 		// Remove any other peers on this IP address. This is kind of a hack since we don't have
 		// "last reported time" at the moment. If a new peer starts up on a host, then we remove
 		// the other one.
-		toRemove := make([]string, 0, 2)
+		toRemove := make([]string, 0, 10)
 		for id, tmpPeer := range peers {
 			if tmpPeer.Ip == peer.Ip {
+				toRemove = append(toRemove, id)
+			} else if rand.Intn(100) == 0 {
+				// This gives us a 1% chance that every time we iterate over this list, we remove
+				// the peer. This is a gross hack to provide removal of dead peers eventually, this
+				// should really be time based.
 				toRemove = append(toRemove, id)
 			}
 		}

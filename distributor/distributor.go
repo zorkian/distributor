@@ -18,6 +18,7 @@ import (
 
 // 2 = debug, 1 = verbose, 0 = normal
 var VERBOSITY uint32 = 0
+var CTORRENT string = "/usr/local/bin/ctorrent"
 
 func main() {
 	verbose := flag.Bool("verbose", false, "Verbose mode (extra output)")
@@ -25,6 +26,7 @@ func main() {
 	listen := flag.String("listen", "127.0.0.1", "IP address to bind to for serving")
 	port := flag.Int("port", 6390, "Port to serve tracker/torrents on")
 	dir := flag.String("serve", "/var/www", "Directory to serve files from")
+	ctorrent := flag.String("ctorrent", CTORRENT, "Path to ctorrent binary")
 	flag.Parse()
 
 	info, err := os.Stat(*dir)
@@ -41,6 +43,11 @@ func main() {
 	} else if *verbose {
 		VERBOSITY = 1
 	}
+
+	if _, err = os.Stat(*ctorrent); err != nil {
+		logfatal("ctorrent binary not found at: %s", *ctorrent)
+	}
+	CTORRENT = *ctorrent
 
 	if *port < 1 || *port > 65535 {
 		logfatal("-port must be in range 1..65535")
