@@ -40,8 +40,6 @@ type PeerResponse struct {
 }
 
 type Tracker struct {
-	AnnounceURL string // Points back at ourselves.
-
 	// We keep a separate set of peers for each info_hash. We don't actually verify that these
 	// hashes are valid; so there's a pretty easy DoS here. This system is designed to be used
 	// in a production environment with good actors. TODO: harden.
@@ -139,7 +137,8 @@ func (self *Tracker) handleServe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	md := Metadata{
-		Announce: self.AnnounceURL,
+		// Using Host like this is probably safe, but is potentially a hack.
+		Announce: fmt.Sprintf("http://%s/announce", r.Host),
 		Info:     *file.MetadataInfo,
 	}
 
@@ -302,9 +301,8 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 // starTracker spins up a tracker on a given ip:port for the given set of watchers.
 func startTracker(ip string, port int, watchers []*Watcher) *Tracker {
 	tracker := &Tracker{
-		AnnounceURL: fmt.Sprintf("http://%s:%d/announce", ip, port),
-		PeerList:    make(map[string]map[string]Peer),
-		watchers:    watchers,
+		PeerList: make(map[string]map[string]Peer),
+		watchers: watchers,
 	}
 
 	http.HandleFunc("/serve", tracker.handleServe)
