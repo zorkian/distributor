@@ -51,7 +51,6 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 	// it can take a while.
 	for {
 		localfn := <-metaChannel
-		//logdebug("Requested metadata generation for: %s", localfn)
 
 		file := self.GetFile(localfn)
 		if file == nil {
@@ -86,10 +85,8 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 			continue
 		}
 
-		self.FilesLock.Lock()
 		file.Size = info.Size()
 		file.MetadataInfo = mdinfo
-		self.FilesLock.Unlock()
 	}
 }
 
@@ -97,7 +94,7 @@ func (self *Watcher) updateChannelHandler(updates chan string) {
 	// The watcher is also responsible for (single-threadedly) generating metadata information
 	// for files. This is done in such a way as to make it so that files aren't available until
 	// the metadata is done.
-	metaChannel := make(chan string, 1000)
+	metaChannel := make(chan string, 10000)
 	go self.metadataGenerator(metaChannel)
 
 	for {
@@ -108,6 +105,7 @@ func (self *Watcher) updateChannelHandler(updates chan string) {
 			continue
 		}
 		localfn := fqfn[len(self.Directory)+1:]
+		requestMetadata := false
 
 		func() {
 			self.FilesLock.Lock()
@@ -137,10 +135,16 @@ func (self *Watcher) updateChannelHandler(updates chan string) {
 						Name: name,
 						FQFN: fqfn,
 					}
-					metaChannel <- localfn
+					requestMetadata = true
 				}
 			}
 		}()
+
+		// This has to happen late like this instead of above since otherwise we might end up
+		// with deadlock with the metadata generator.
+		if requestMetadata {
+			metaChannel <- localfn
+		}
 	}
 }
 
