@@ -70,7 +70,8 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 
 		mdinfo, err := GenerateMetadataInfo(file.FQFN)
 		if err != nil {
-			logfatal("Failed to generate metadata: %s", err)
+			logerror("Failed to generate metadata: %s", err)
+			continue
 		}
 
 		info2, err := os.Stat(file.FQFN)
@@ -118,7 +119,7 @@ func (self *Watcher) updateChannelHandler(updates chan string) {
 			if exists && info == nil {
 				// Deleted files.
 				logdebug("File removed: %s", fqfn)
-				delete(self.Files, fqfn)
+				delete(self.Files, localfn)
 
 			} else if !exists && info != nil {
 				// New file found, watch it or add it to our list.

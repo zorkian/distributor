@@ -88,6 +88,15 @@ func GenerateMetadataInfo(fqfn string) (*MetadataInfo, error) {
 		bytesRead, fileSize := int64(0), info.Size()
 		for {
 			bytesToRead := fileSize - bytesRead
+
+			// There is a case where bytesToRead becomes negative, because the file has grown
+			// while we were reading it. In this case, bail with nothing. The caller will notice
+			// that the file has changed size and check it again.
+			if bytesToRead < 0 {
+				logdebug("Metadata generator found growing file: %s", fqfn)
+				return nil, nil
+			}
+
 			if bytesToRead > pieceLength {
 				bytesToRead = pieceLength
 			}
