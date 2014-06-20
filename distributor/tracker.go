@@ -98,7 +98,7 @@ func (self *Tracker) startSeed(file *File, metadata *Metadata) {
 		return
 	}
 
-	file.SeedCommand = exec.Command(CTORRENT, "-s", file.FQFN, "-e", "4", "-p", "51500", tmp.Name())
+	file.SeedCommand = exec.Command(CTORRENT, "-s", file.FQFN, "-e", "4", "-p", "8999", tmp.Name())
 	self.seedStartLock.Unlock()
 
 	// TODO: Read from output pipes, because they could fill up?
