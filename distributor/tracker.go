@@ -310,7 +310,7 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 		peer.Ip, peer.Port, len(outPeers), len(peers))
 
 	// Build the output dictionary and return it.
-	err = bencode.Marshal(w, PeerResponse{Interval: rand.Intn(30) + 30, Peers: outPeers})
+	err = bencode.Marshal(w, PeerResponse{Interval: rand.Intn(120) + 300, Peers: outPeers})
 	if err != nil {
 		logerror("Failed to bencode: %s", err)
 	}
