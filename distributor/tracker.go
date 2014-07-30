@@ -44,6 +44,7 @@ type Tracker struct {
 	// hashes are valid; so there's a pretty easy DoS here. This system is designed to be used
 	// in a production environment with good actors. TODO: harden.
 	// TODO: We need a way of droppign peers that have not reported in a while.
+	PeerSeen     map[string]map[string]time.Time
 	PeerList     map[string]map[string]Peer
 	peerListLock sync.Mutex
 
@@ -243,6 +244,18 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 		self.PeerList[info_hash] = peers
 	}
 
+	peerseen, ok := self.PeerSeen[info_hash]
+	if !ok {
+		peerseen = make(map[string]time.Time)
+		self.PeerSeen[info_hash] = peerseen
+	}
+
+	var peerage time.Duration
+	peerlastseen, pok := peerseen[peer.Id]
+	if pok {
+		peerage = time.Since(peerlastseen)
+	}
+
 	// Add this peer to the set if they don't exist, plus possibly purge other peers on this IP.
 	if _, ok := peers[peer.Id]; !ok {
 		// Remove any other peers on this IP address. This is kind of a hack since we don't have
@@ -252,7 +265,7 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 		for id, tmpPeer := range peers {
 			if tmpPeer.Ip == peer.Ip {
 				toRemove = append(toRemove, id)
-			} else if rand.Intn(100) == 0 {
+			} else if pok && peerage > 300*time.Second {
 				// This gives us a 1% chance that every time we iterate over this list, we remove
 				// the peer. This is a gross hack to provide removal of dead peers eventually, this
 				// should really be time based.
@@ -261,11 +274,15 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, id := range toRemove {
 			delete(peers, id)
+			delete(peerseen, id)
 		}
 
 		// Finally insert this new peer.
 		peers[peer.Id] = *peer
 	}
+
+	// Always update the timestamp so we know when people report.
+	peerseen[peer.Id] = time.Now()
 
 	// If they're stopping, then remove this peer from the valid list.
 	if event == "stopped" {
@@ -289,7 +306,8 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 		outPeers = append(outPeers, tmpPeer)
 		logdebug("[%s:%d] peer %s:%d", peer.Ip, peer.Port, tmpPeer.Ip, tmpPeer.Port)
 	}
-	loginfo("Giving peer %s:%d a list of %d peers.", peer.Ip, peer.Port, len(outPeers))
+	loginfo("Giving peer %s:%d a list of %d peers (out of %d).",
+		peer.Ip, peer.Port, len(outPeers), len(peers))
 
 	// Build the output dictionary and return it.
 	err = bencode.Marshal(w, PeerResponse{Interval: rand.Intn(30) + 30, Peers: outPeers})
@@ -302,6 +320,7 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 func startTracker(ip string, port int, watchers []*Watcher) *Tracker {
 	tracker := &Tracker{
 		PeerList: make(map[string]map[string]Peer),
+		PeerSeen: make(map[string]map[string]time.Time),
 		watchers: watchers,
 	}
 
