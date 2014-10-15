@@ -50,7 +50,7 @@ script on a client might be something like:
 ```bash
 #!/bin/bash
 
-wget -O myfile.iso.torrent "http://distributor:6969/myfile.iso"
+wget -O myfile.iso.torrent "http://distributor:6969/serve?myfile.iso"
 ctorrent myfile.iso.torrent
 ```
 
