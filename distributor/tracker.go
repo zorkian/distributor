@@ -51,12 +51,15 @@ type Tracker struct {
 	// Lock used by all methods that affect the seed process.
 	seedStartLock sync.Mutex
 
+	// The key in the watchers map is how these watchers can be queried for the latest data
+	// see handleServeLastUpdated()
+	//
 	// Careful: there is no locking here. It's assumed that the only time this is
 	// written is from the very initial setup of the app and never during runtime. If that
 	// changes we'll need locking. (This may actually be technically a little racy right
 	// now if there's a ton of requests during power-on, since we start listening
 	// before the watchers are created.)
-	watchers []*Watcher // List of watchers who might have files.
+	watchers map[string]*Watcher // List of watchers who might have files.
 }
 
 // findFile searches all of our watchers for a given filename (FQFN). If found, it returns
@@ -74,9 +77,9 @@ func (self *Tracker) findFile(name string) *File {
 // modification time or nil if no such file could be found; only considers files that have
 // non-nil metadata, as there are cases where we don't generate metadata for files
 // that exist (e.g. 0-length)
-func (self *Tracker) findLastUpdatedFile() *File {
+func (self *Tracker) findLastUpdatedFile(watchers []*Watcher) *File {
 	var last_updated *File = nil
-	for _, watcher := range self.watchers {
+	for _, watcher := range watchers {
 		for _, file := range watcher.GetFiles() {
 			if file.MetadataInfo == nil {
 				continue
@@ -159,7 +162,28 @@ func (self *Tracker) handleServe(w http.ResponseWriter, r *http.Request) {
 func (self *Tracker) handleServeLastUpdated(w http.ResponseWriter, r *http.Request) {
 	logdebug("Request: %s", r.URL.RequestURI())
 
-	file := self.findLastUpdatedFile()
+	var query_watchers []*Watcher
+
+	pieces := strings.SplitN(r.URL.RequestURI(), "?", 2)
+	if len(pieces) > 2 {
+		io.WriteString(w, "invalid request")
+		return
+	} else if len(pieces) == 2 {
+		// query the specified watcher
+		watcher := self.watchers[pieces[1]]
+		if watcher == nil {
+			io.WriteString(w, "invalid watcher name")
+			return
+		}
+		query_watchers = append(query_watchers, watcher)
+	} else {
+		// query all watchers
+		for _, watcher := range self.watchers {
+			query_watchers = append(query_watchers, watcher)
+		}
+	}
+
+	file := self.findLastUpdatedFile(query_watchers)
 	self.serveFile(w, r, file)
 }
 
@@ -349,7 +373,7 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 }
 
 // starTracker spins up a tracker on a given ip:port for the given set of watchers.
-func startTracker(ip string, port int, watchers []*Watcher) *Tracker {
+func startTracker(ip string, port int, watchers map[string]*Watcher) *Tracker {
 	tracker := &Tracker{
 		PeerList: make(map[string]map[string]Peer),
 		PeerSeen: make(map[string]map[string]time.Time),
