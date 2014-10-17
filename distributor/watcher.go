@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Watcher is instantiated for each directory we're serving files for.
@@ -30,7 +31,7 @@ type Watcher struct {
 type File struct {
 	Name         string        // Base filename.
 	FQFN         string        // Path + filename.
-	Size         int64         // File size.
+	ModTime      time.Time     // Modification time.
 	MetadataInfo *MetadataInfo // Reference to our metadata.
 	SeedCommand  *exec.Cmd     // Owned by the Tracker methods.
 }
@@ -64,7 +65,7 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 		}
 
 		// If we already have metadata, we also want to check if the size is the same.
-		if file.MetadataInfo != nil && file.Size == info.Size() {
+		if file.MetadataInfo != nil && file.ModTime == info.ModTime() {
 			continue
 		}
 
@@ -80,13 +81,13 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 			continue
 		}
 
-		if info.Size() != info2.Size() {
+		if info.ModTime() != info2.ModTime() {
 			logerror("File changed sizes while generating metadata. Requeuing.")
 			metaChannel <- localfn
 			continue
 		}
 
-		file.Size = info.Size()
+		file.ModTime = info.ModTime()
 		file.MetadataInfo = mdinfo
 	}
 }
