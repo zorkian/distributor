@@ -46,6 +46,18 @@ func (self *Watcher) GetFile(name string) *File {
 	return self.Files[name]
 }
 
+// GetFiles returns a list of all files in this directory; if no files exist, returns an empty list
+func (self *Watcher) GetFiles() []*File {
+	self.FilesLock.Lock()
+	defer self.FilesLock.Unlock()
+
+	var files []*File
+	for _, value := range self.Files {
+		files = append(files, value)
+	}
+	return files
+}
+
 func (self *Watcher) metadataGenerator(metaChannel chan string) {
 	// Some assumptions: We are the only writer to ever touch the Metadata record in any
 	// File object globally. We take a lock to get the file and before we do any manipulation

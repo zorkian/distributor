@@ -12,9 +12,9 @@
 package main
 
 import (
-	bencode "github.com/jackpal/bencode-go"
 	"errors"
 	"fmt"
+	bencode "github.com/jackpal/bencode-go"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -68,6 +68,26 @@ func (self *Tracker) findFile(name string) *File {
 		}
 	}
 	return nil
+}
+
+// findLastUpdatedFile goes through all the watchers and returns the file with the latest
+// modification time or nil if no such file could be found; only considers files that have
+// non-nil metadata, as there are cases where we don't generate metadata for files
+// that exist (e.g. 0-length)
+func (self *Tracker) findLastUpdatedFile() *File {
+	var last_updated *File = nil
+	for _, watcher := range self.watchers {
+		for _, file := range watcher.GetFiles() {
+			if file.MetadataInfo == nil {
+				continue
+			}
+
+			if last_updated == nil || file.ModTime.After(last_updated.ModTime) {
+				last_updated = file
+			}
+		}
+	}
+	return last_updated
 }
 
 // startSeed attempts to start up a seeding process for a given torrent file.
@@ -132,19 +152,21 @@ func (self *Tracker) handleServe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	file := self.findFile(pieces[1])
+	self.serveFile(w, r, file)
+}
+
+// handleServeLatest is the endpoint that is responsible for serving the latest file that was updated
+func (self *Tracker) handleServeLastUpdated(w http.ResponseWriter, r *http.Request) {
+	logdebug("Request: %s", r.URL.RequestURI())
+
+	file := self.findLastUpdatedFile()
+	self.serveFile(w, r, file)
+}
+
+func (self *Tracker) serveFile(w http.ResponseWriter, r *http.Request, file *File) {
 	if file == nil {
 		io.WriteString(w, "file not found")
 		return
-	}
-
-	md := Metadata{
-		// Using Host like this is probably safe, but is potentially a hack.
-		Announce: fmt.Sprintf("http://%s/announce", r.Host),
-		Info:     *file.MetadataInfo,
-	}
-
-	if file.SeedCommand == nil {
-		self.startSeed(file, &md)
 	}
 
 	for {
@@ -157,6 +179,16 @@ func (self *Tracker) handleServe(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		break
+	}
+
+	md := Metadata{
+		// Using Host like this is probably safe, but is potentially a hack.
+		Announce: fmt.Sprintf("http://%s/announce", r.Host),
+		Info:     *file.MetadataInfo,
+	}
+
+	if file.SeedCommand == nil {
+		self.startSeed(file, &md)
 	}
 
 	err := bencode.Marshal(w, md)
@@ -325,6 +357,7 @@ func startTracker(ip string, port int, watchers []*Watcher) *Tracker {
 	}
 
 	http.HandleFunc("/serve", tracker.handleServe)
+	http.HandleFunc("/serve_last_updated", tracker.handleServeLastUpdated)
 	http.HandleFunc("/announce", tracker.handleAnnounce)
 
 	go func() {
