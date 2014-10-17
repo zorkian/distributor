@@ -114,29 +114,34 @@ func (self *Watcher) updateChannelHandler(updates chan string) {
 			defer self.FilesLock.Unlock()
 
 			info, _ := os.Stat(fqfn)
-			_, exists := self.Files[localfn]
+			_, isTracking := self.Files[localfn]
 			name := filepath.Base(fqfn)
 
-			if exists && info == nil {
+			if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".mdcache") {
+				// Ignore hidden and metadata cache files
+				return
+			}
+
+			if isTracking && info == nil {
 				// Deleted files.
 				logdebug("File removed: %s", fqfn)
 				delete(self.Files, localfn)
-
-			} else if !exists && info != nil {
-				// New file found, watch it or add it to our list.
-				if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".mdcache") {
-					return
-				}
-
-				// Directories get walked, files just get added.
-				if info.IsDir() {
-					go self.walkAndWatch(fqfn, updates)
-				} else {
-					logdebug("File discovered: %s", localfn)
-					self.Files[localfn] = &File{
-						Name: name,
-						FQFN: fqfn,
+			} else if info != nil {
+				if !isTracking {
+					// New file found, watch it or add it to our list.
+					if info.IsDir() {
+						// Directories get walked, files just get added.
+						go self.walkAndWatch(fqfn, updates)
+					} else {
+						logdebug("File discovered: %s", localfn)
+						self.Files[localfn] = &File{
+							Name: name,
+							FQFN: fqfn,
+						}
+						requestMetadata = true
 					}
+				} else {
+					// Otherwise, a file may have been updated
 					requestMetadata = true
 				}
 			}

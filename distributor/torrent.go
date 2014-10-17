@@ -65,13 +65,17 @@ func GenerateMetadataInfo(fqfn string) (*MetadataInfo, error) {
 	cache_fqfn := fqfn + ".mdcache"
 	cache_info, err := os.Stat(cache_fqfn)
 	if err == nil && cache_info != nil {
-		cache_bytes, err = ioutil.ReadFile(cache_fqfn)
-		if err == nil {
-			logdebug("Loaded %d cached bytes from %s.", len(cache_bytes), cache_fqfn)
-			if len(cache_bytes) != pieceCount*20 {
-				logerror("Cache invalid: length does not match expected size!")
-			} else {
-				use_cache = true
+		if info.ModTime().After(cache_info.ModTime()) {
+			logdebug("Cache invalid: %s updated more recently than %s", fqfn, cache_fqfn)
+		} else {
+			cache_bytes, err = ioutil.ReadFile(cache_fqfn)
+			if err == nil {
+				logdebug("Loaded %d cached bytes from %s.", len(cache_bytes), cache_fqfn)
+				if len(cache_bytes) != pieceCount*20 {
+					logerror("Cache invalid: length does not match expected size!")
+				} else {
+					use_cache = true
+				}
 			}
 		}
 	}
