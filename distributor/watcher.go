@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Watcher is instantiated for each directory we're serving files for.
@@ -31,6 +32,7 @@ type File struct {
 	Name         string        // Base filename.
 	FQFN         string        // Path + filename.
 	Size         int64         // File size.
+	ModTime      time.Time     // Modification time.
 	MetadataInfo *MetadataInfo // Reference to our metadata.
 	SeedCommand  *exec.Cmd     // Owned by the Tracker methods.
 }
@@ -63,8 +65,8 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 			continue
 		}
 
-		// If we already have metadata, we also want to check if the size is the same.
-		if file.MetadataInfo != nil && file.Size == info.Size() {
+		// If we already have metadata, we also want to check if the file hasn't been modified
+		if file.MetadataInfo != nil && file.ModTime == info.ModTime() && file.Size == info.Size() {
 			continue
 		}
 
@@ -80,13 +82,13 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 			continue
 		}
 
-		if info.Size() != info2.Size() {
-			logerror("File changed sizes while generating metadata. Requeuing.")
-			metaChannel <- localfn
+		if info.Size() != info2.Size() || info.ModTime() != info2.ModTime() {
+			logerror("File changed while generating metadata. Ignoring results and waiting for next event.")
 			continue
 		}
 
 		file.Size = info.Size()
+		file.ModTime = info.ModTime()
 		file.MetadataInfo = mdinfo
 	}
 }
@@ -113,29 +115,34 @@ func (self *Watcher) updateChannelHandler(updates chan string) {
 			defer self.FilesLock.Unlock()
 
 			info, _ := os.Stat(fqfn)
-			_, exists := self.Files[localfn]
+			_, isTracking := self.Files[localfn]
 			name := filepath.Base(fqfn)
 
-			if exists && info == nil {
+			if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".mdcache") {
+				// Ignore hidden and metadata cache files
+				return
+			}
+
+			if isTracking && info == nil {
 				// Deleted files.
 				logdebug("File removed: %s", fqfn)
 				delete(self.Files, localfn)
-
-			} else if !exists && info != nil {
-				// New file found, watch it or add it to our list.
-				if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".mdcache") {
-					return
-				}
-
-				// Directories get walked, files just get added.
-				if info.IsDir() {
-					go self.walkAndWatch(fqfn, updates)
-				} else {
-					logdebug("File discovered: %s", localfn)
-					self.Files[localfn] = &File{
-						Name: name,
-						FQFN: fqfn,
+			} else if info != nil {
+				if !isTracking {
+					// New file found, watch it or add it to our list.
+					if info.IsDir() {
+						// Directories get walked, files just get added.
+						go self.walkAndWatch(fqfn, updates)
+					} else {
+						logdebug("File discovered: %s", localfn)
+						self.Files[localfn] = &File{
+							Name: name,
+							FQFN: fqfn,
+						}
+						requestMetadata = true
 					}
+				} else {
+					// Otherwise, a file may have been updated
 					requestMetadata = true
 				}
 			}
