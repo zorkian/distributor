@@ -31,6 +31,7 @@ type Watcher struct {
 type File struct {
 	Name         string        // Base filename.
 	FQFN         string        // Path + filename.
+	Size         int64         // File size.
 	ModTime      time.Time     // Modification time.
 	MetadataInfo *MetadataInfo // Reference to our metadata.
 	SeedCommand  *exec.Cmd     // Owned by the Tracker methods.
@@ -64,8 +65,8 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 			continue
 		}
 
-		// If we already have metadata, we also want to check if the size is the same.
-		if file.MetadataInfo != nil && file.ModTime == info.ModTime() {
+		// If we already have metadata, we also want to check if the file hasn't been modified
+		if file.MetadataInfo != nil && file.ModTime == info.ModTime() && file.Size == info.Size() {
 			continue
 		}
 
@@ -81,12 +82,12 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 			continue
 		}
 
-		if info.ModTime() != info2.ModTime() {
-			logerror("File changed sizes while generating metadata. Requeuing.")
-			metaChannel <- localfn
+		if info.Size() != info2.Size() || info.ModTime() != info2.ModTime() {
+			logerror("File changed while generating metadata. Ignoring results and waiting for next event.")
 			continue
 		}
 
+		file.Size = info.Size()
 		file.ModTime = info.ModTime()
 		file.MetadataInfo = mdinfo
 	}
