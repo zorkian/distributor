@@ -13,6 +13,7 @@ package main
 import (
 	"flag"
 	"os"
+	"path"
 	"path/filepath"
 )
 
@@ -54,12 +55,12 @@ func main() {
 	}
 
 	// The basic flow is that we set up a tracker, which listens on a port for HTTP requests. The
-	// tracker coordinates peers and torrent files. To each tracker we can attach a watcher, which
-	// handles monitoring of files.
+	// tracker coordinates peers and torrent files. To each tracker we can attach a set of watchers,
+	// which handle monitoring of files.
 
 	doQuit := make(chan bool)
-	watchers := []*Watcher{
-		startWatcher(*dir),
+	watchers := map[string]*Watcher{
+		path.Base(*dir): startWatcher(*dir),
 	}
 	startTracker(*listen, *port, watchers)
 
