@@ -43,9 +43,17 @@ Nothing else. It's supposed to be really simple.
 
 ### Client Usage
 
-To actually fetch a file, all you need to know is the serve URL for the
-torrent file. This is based on the name of the file. A simple download
-script on a client might be something like:
+The distributor serves torrents, not files. See the example below for how to
+interact with these files
+
+- **/serve?filename.iso** fetch a torrent for the filename specified in one of
+  the directories watched by the distributor
+- **/serve_last_updated?my_dir** serve the last modified file in `my_dir`,
+  where `my_dir` is one of the directories that the distributor is watching
+- **/serve_last_updated** serve the last modified file across all directories
+  that distributor is watching
+
+A simple download script on a client might be something like:
 
 ```bash
 #!/bin/bash
@@ -56,4 +64,5 @@ ctorrent myfile.iso.torrent
 
 If all went well, you should have a copy of myfile.iso on the local
 machine. If you run this command across your thousands of servers, then
-they should all work together to distribute the file quickly.
+they should all work together to distribute the file quickly, using the
+**/announce** endpoint to announce themselves to the distributor.
