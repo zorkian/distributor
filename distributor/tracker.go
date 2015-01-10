@@ -319,12 +319,7 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 		// the other one.
 		toRemove := make([]string, 0, 10)
 		for id, tmpPeer := range peers {
-			if tmpPeer.Ip == peer.Ip {
-				toRemove = append(toRemove, id)
-			} else if pok && peerage > 300*time.Second {
-				// This gives us a 1% chance that every time we iterate over this list, we remove
-				// the peer. This is a gross hack to provide removal of dead peers eventually, this
-				// should really be time based.
+			if tmpPeer.Ip == peer.Ip || (pok && peerage > 300*time.Second) {
 				toRemove = append(toRemove, id)
 			}
 		}
@@ -344,6 +339,7 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 	if event == "stopped" {
 		loginfo("Peer %s:%d is leaving the swarm.", peer.Ip, peer.Port)
 		delete(peers, peer.Id)
+		delete(peerseen, peer.Id)
 	}
 
 	// We give the user back N random peers by just picking a window into our peer list.
