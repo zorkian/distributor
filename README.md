@@ -66,3 +66,9 @@ If all went well, you should have a copy of myfile.iso on the local
 machine. If you run this command across your thousands of servers, then
 they should all work together to distribute the file quickly, using the
 **/announce** endpoint to announce themselves to the distributor.
+
+## Copyright
+
+Please see the included LICENSE file.
+
+This project was started by Mark Smith (mark@qq.is) in 2014.
