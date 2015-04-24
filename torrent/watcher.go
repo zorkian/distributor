@@ -6,7 +6,7 @@
  *
  */
 
-package main
+package torrent
 
 import (
 	"github.com/howeyc/fsnotify"
@@ -20,10 +20,11 @@ import (
 
 // Watcher is instantiated for each directory we're serving files for.
 type Watcher struct {
-	Watcher   *fsnotify.Watcher
-	Directory string
-	Files     map[string]*File // FQFN as key.
-	FilesLock sync.Mutex
+	Watcher     *fsnotify.Watcher
+	Directory   string
+	Files       map[string]*File // FQFN as key.
+	FilesLock   sync.Mutex
+	QuitChannel chan bool
 }
 
 // File represents a single file that we are serving. These are read by other parts of the system
@@ -65,7 +66,6 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 	// it can take a while.
 	for {
 		localfn := <-metaChannel
-
 		file := self.GetFile(localfn)
 		if file == nil {
 			continue
@@ -73,7 +73,7 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 
 		info, err := os.Stat(file.FQFN)
 		if err != nil {
-			logerror("Failed to stat %s: %s", file.FQFN, err)
+			LogError("Failed to stat %s: %s", file.FQFN, err)
 			continue
 		}
 
@@ -84,18 +84,18 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 
 		mdinfo, err := GenerateMetadataInfo(file.FQFN)
 		if err != nil {
-			logerror("Failed to generate metadata: %s", err)
+			LogError("Failed to generate metadata: %s", err)
 			continue
 		}
 
 		info2, err := os.Stat(file.FQFN)
 		if err != nil {
-			logerror("Failed to stat %s: %s", file.FQFN, err)
+			LogError("Failed to stat %s: %s", file.FQFN, err)
 			continue
 		}
 
 		if info.Size() != info2.Size() || info.ModTime() != info2.ModTime() {
-			logerror("File changed while generating metadata. Ignoring results and waiting for next event.")
+			LogError("File changed while generating metadata. Ignoring results and waiting for next event.")
 			continue
 		}
 
@@ -116,7 +116,7 @@ func (self *Watcher) updateChannelHandler(updates chan string) {
 		fqfn := <-updates
 
 		if !strings.HasPrefix(fqfn, self.Directory) {
-			logerror("File %s not in watched dir %s!", fqfn, self.Directory)
+			LogError("File %s not in watched dir %s!", fqfn, self.Directory)
 			continue
 		}
 		localfn := fqfn[len(self.Directory)+1:]
@@ -137,7 +137,7 @@ func (self *Watcher) updateChannelHandler(updates chan string) {
 
 			if isTracking && info == nil {
 				// Deleted files.
-				logdebug("File removed: %s", fqfn)
+				LogDebug("File removed: %s", fqfn)
 				delete(self.Files, localfn)
 			} else if info != nil {
 				if !isTracking {
@@ -146,7 +146,7 @@ func (self *Watcher) updateChannelHandler(updates chan string) {
 						// Directories get walked, files just get added.
 						go self.walkAndWatch(fqfn, updates)
 					} else {
-						logdebug("File discovered: %s", localfn)
+						LogDebug("File discovered: %s", localfn)
 						self.Files[localfn] = &File{
 							Name: name,
 							FQFN: fqfn,
@@ -169,15 +169,15 @@ func (self *Watcher) updateChannelHandler(updates chan string) {
 }
 
 func (self *Watcher) walkAndWatch(dir string, updates chan string) {
-	logdebug("Walking directory: %s", dir)
+	LogDebug("Walking directory: %s", dir)
 	filepath.Walk(dir, func(fqfn string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if info.IsDir() {
-			loginfo("Watching directory: %s", fqfn)
+			LogInfo("Watching directory: %s", fqfn)
 			if err := self.Watcher.Watch(fqfn); err != nil {
-				logfatal("Watch: %s", err)
+				LogFatal("Watch: %s", err)
 			}
 		} else {
 			updates <- fqfn
@@ -203,24 +203,31 @@ func (self *Watcher) watch() {
 			// updated. It can infer what it needs to do based on the present state.
 			updateChannel <- ev.Name
 		case err := <-self.Watcher.Error:
-			logerror("Watcher error: %s", err)
+			// Should this be exiting the loop??
+			LogError("Watcher error: %s", err)
+		case _ = <-self.QuitChannel:
+			return
 		}
 	}
-	logfatal("Watcher exited unexpectedly.")
+}
+
+func (w *Watcher) Close() {
+	w.QuitChannel <- true
 }
 
 // startWatcher creates a watcher for a given directory and starts watching it.
-func startWatcher(dir string) *Watcher {
+func StartWatcher(dir string) *Watcher {
 	// Set up fsnotify watcher.
 	fswatcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		logfatal("NewWatcher: %s", err)
+		LogFatal("NewWatcher: %s", err)
 	}
 
 	watcher := &Watcher{
-		Watcher:   fswatcher,
-		Directory: dir,
-		Files:     make(map[string]*File),
+		Watcher:     fswatcher,
+		Directory:   dir,
+		Files:       make(map[string]*File),
+		QuitChannel: make(chan bool),
 	}
 	go watcher.watch()
 

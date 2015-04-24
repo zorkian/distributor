@@ -11,14 +11,14 @@
 package main
 
 import (
+	"distributor/torrent"
 	"flag"
+	"fmt"
 	"os"
-	"path"
+	"os/signal"
 	"path/filepath"
 )
 
-// 2 = debug, 1 = verbose, 0 = normal
-var VERBOSITY uint32 = 0
 var CTORRENT string = "/usr/local/bin/ctorrent"
 
 func main() {
@@ -32,38 +32,31 @@ func main() {
 
 	info, err := os.Stat(*dir)
 	if err != nil {
-		logfatal("-serve does not exist: %s", err)
+		torrent.LogFatal("-serve does not exist: %s", err)
 	}
 	if !info.IsDir() {
-		logfatal("-serve is not a directory")
+		torrent.LogFatal("-serve is not a directory")
 	}
 	*dir = filepath.Clean(*dir) // Canonicalize.
-
+	verbosity := torrent.VerbNormal
 	if *debug {
-		VERBOSITY = 2
+		verbosity = torrent.VerbDebug
 	} else if *verbose {
-		VERBOSITY = 1
+		verbosity = torrent.VerbVerbose
 	}
 
-	if _, err = os.Stat(*ctorrent); err != nil {
-		logfatal("ctorrent binary not found at: %s", *ctorrent)
+	distributor, err := torrent.NewDistributor(verbosity, *dir, *ctorrent, *listen, *port)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error Creating distributor: %v\n", err)
+		os.Exit(1)
 	}
-	CTORRENT = *ctorrent
+	go distributor.Run()
 
-	if *port < 1 || *port > 65535 {
-		logfatal("-port must be in range 1..65535")
-	}
-
-	// The basic flow is that we set up a tracker, which listens on a port for HTTP requests. The
-	// tracker coordinates peers and torrent files. To each tracker we can attach a set of watchers,
-	// which handle monitoring of files.
-
-	doQuit := make(chan bool)
-	watchers := map[string]*Watcher{
-		path.Base(*dir): startWatcher(*dir),
-	}
-	startTracker(*listen, *port, watchers)
-
-	loginfo("distributing %s on %s:%d", *dir, *listen, *port)
-	<-doQuit
+	// Make the system keep running until it receives an interrupt or kill signal
+	// from the OS; then cleanup and exit.
+	doQuit := make(chan os.Signal)
+	signal.Notify(doQuit, os.Interrupt, os.Kill)
+	_ = <-doQuit
+	distributor.Close()
+	os.Exit(0)
 }

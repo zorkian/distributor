@@ -1,4 +1,4 @@
-package main
+package torrent
 
 import (
 	"github.com/stretchr/testify/assert"
@@ -16,7 +16,7 @@ func TestMakeHashesEmptyFile(t *testing.T) {
 	reader := strings.NewReader(test_file)
 	hashes, bytesRead, err := makeHashes(reader, 0)
 	assert.Nil(t, err)
-	assert.Equal(t, bytesRead, 0, "should be 0")
+	assert.Equal(t, bytesRead, int64(0), "should be 0")
 	assert.Empty(t, hashes)
 }
 
@@ -25,7 +25,7 @@ func TestMakeHashesOneChunk(t *testing.T) {
 	reader := strings.NewReader(test_file)
 	hashes, bytesRead, err := makeHashes(reader, int64(len(test_file)))
 	assert.Nil(t, err)
-	assert.Equal(t, bytesRead, len(test_file), "should match the length of the file")
+	assert.Equal(t, bytesRead, int64(len(test_file)), "should match the length of the file")
 	assert.Len(t, hashes, 1, "should have one chunk")
 
 	bytes := []byte{220, 114, 74, 241, 143, 189, 212, 229, 145, 137, 245, 254, 118, 138, 95,
@@ -41,7 +41,7 @@ func TestMakeHashesTwoChunks(t *testing.T) {
 	reader := strings.NewReader(test_file)
 	hashes, bytesRead, err := makeHashes(reader, int64(len(test_file)))
 	assert.Nil(t, err)
-	assert.Equal(t, bytesRead, len(test_file), "should match the length of the file")
+	assert.Equal(t, bytesRead, int64(len(test_file)), "should match the length of the file")
 	assert.Len(t, hashes, 2, "should have one chunk")
 
 	bytes := []byte{247, 218, 76, 179, 188, 125, 55, 53, 207, 46, 38, 44, 239, 5, 213,

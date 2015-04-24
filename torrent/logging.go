@@ -6,31 +6,37 @@
  *
  */
 
-package main
+package torrent
 
 import (
 	"log"
 )
 
-func loginfo(fmt string, args ...interface{}) {
+var VERBOSITY uint32 = 0
+
+func SetLoggingVerbosity(level uint32) {
+	VERBOSITY = level
+}
+
+func LogInfo(fmt string, args ...interface{}) {
 	if VERBOSITY >= 1 {
 		log.Printf("[INFO] "+fmt, args...)
 	}
 }
 
-func logwarning(fmt string, args ...interface{}) {
+func LogWarning(fmt string, args ...interface{}) {
 	log.Printf("[WARNING] "+fmt, args...)
 }
 
-func logerror(fmt string, args ...interface{}) {
+func LogError(fmt string, args ...interface{}) {
 	log.Printf("[ERROR] "+fmt, args...)
 }
 
-func logfatal(fmt string, args ...interface{}) {
+func LogFatal(fmt string, args ...interface{}) {
 	log.Fatalf("[FATAL] "+fmt, args...)
 }
 
-func logdebug(fmt string, args ...interface{}) {
+func LogDebug(fmt string, args ...interface{}) {
 	if VERBOSITY >= 2 {
 		log.Printf("[DEBUG] "+fmt, args...)
 	}
