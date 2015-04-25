@@ -44,8 +44,9 @@ func main() {
 	} else if *verbose {
 		verbosity = torrent.VerbVerbose
 	}
+	torrent.SetLoggingVerbosity(verbosity)
 
-	distributor, err := torrent.NewDistributor(verbosity, *dir, *ctorrent, *listen, *port)
+	distributor, err := torrent.NewDistributor(*dir, *ctorrent, *listen, *port)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error Creating distributor: %v\n", err)
 		os.Exit(1)

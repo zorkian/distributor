@@ -12,14 +12,22 @@ import (
 	"log"
 )
 
-var VERBOSITY uint32 = 0
+type Verbosity uint32
 
-func SetLoggingVerbosity(level uint32) {
+const (
+	VerbNormal  = Verbosity(0)
+	VerbVerbose = Verbosity(1)
+	VerbDebug   = Verbosity(2)
+)
+
+var VERBOSITY Verbosity = VerbNormal
+
+func SetLoggingVerbosity(level Verbosity) {
 	VERBOSITY = level
 }
 
 func LogInfo(fmt string, args ...interface{}) {
-	if VERBOSITY >= 1 {
+	if VERBOSITY >= VerbVerbose {
 		log.Printf("[INFO] "+fmt, args...)
 	}
 }
@@ -37,7 +45,7 @@ func LogFatal(fmt string, args ...interface{}) {
 }
 
 func LogDebug(fmt string, args ...interface{}) {
-	if VERBOSITY >= 2 {
+	if VERBOSITY >= VerbDebug {
 		log.Printf("[DEBUG] "+fmt, args...)
 	}
 }

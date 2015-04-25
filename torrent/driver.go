@@ -7,27 +7,17 @@ import (
 	"path"
 )
 
-type Verbosity uint32
-
-const (
-	VerbNormal  = Verbosity(0)
-	VerbVerbose = Verbosity(1)
-	VerbDebug   = Verbosity(2)
-)
-
 type Distributor struct {
-	verbosity Verbosity
-	dir       string
-	ctorrent  string
-	address   string
-	port      int
-	quitChan  chan bool
-	watchers  map[string]*Watcher
-	tracker   *Tracker
+	dir      string
+	ctorrent string
+	address  string
+	port     int
+	quitChan chan bool
+	watchers map[string]*Watcher
+	tracker  *Tracker
 }
 
 func NewDistributor(
-	verbosity Verbosity,
 	dir string,
 	ctorrentPath string,
 	address string,
@@ -50,12 +40,11 @@ func NewDistributor(
 		return nil, errors.New("port must be in range 1..65535")
 	}
 	return &Distributor{
-		verbosity: verbosity,
-		dir:       dir,
-		ctorrent:  ctorrentPath,
-		address:   address,
-		port:      port,
-		quitChan:  make(chan bool),
+		dir:      dir,
+		ctorrent: ctorrentPath,
+		address:  address,
+		port:     port,
+		quitChan: make(chan bool),
 	}, nil
 
 }
