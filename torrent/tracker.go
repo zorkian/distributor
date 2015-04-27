@@ -9,7 +9,7 @@
  *
  */
 
-package main
+package torrent
 
 import (
 	"errors"
@@ -60,6 +60,7 @@ type Tracker struct {
 	// now if there's a ton of requests during power-on, since we start listening
 	// before the watchers are created.)
 	watchers map[string]*Watcher // List of watchers who might have files.
+	ctorrent string              // path to the ctorrent executable.
 }
 
 // findFile searches all of our watchers for a given filename (FQFN). If found, it returns
@@ -104,33 +105,41 @@ func (self *Tracker) startSeed(file *File, metadata *Metadata) {
 
 	tmp, err := ioutil.TempFile("", "distributor.")
 	if err != nil {
-		logfatal("TempFile failed: %s", err)
+		LogFatal("TempFile failed: %s", err)
 	}
-	logdebug("Temporary file for %s: %s", file.Name, tmp.Name())
+	LogDebug("Temporary file for %s: %s", file.Name, tmp.Name())
 
 	err = bencode.Marshal(tmp, *metadata)
 	if err != nil {
 		self.seedStartLock.Unlock()
-		logerror("Failed to bencode %s: %s", file.Name, err)
+		LogError("Failed to bencode %s: %s", file.Name, err)
 		return
 	}
 
 	err = tmp.Sync()
 	if err != nil {
 		self.seedStartLock.Unlock()
-		logerror("Failed to fsync: %s", err)
+		LogError("Failed to fsync: %s", err)
 		return
 	}
 
-	file.SeedCommand = exec.Command(CTORRENT, "-s", file.FQFN, "-e", "4", "-p", "8999", tmp.Name())
+	file.SeedCommand = exec.Command(
+		self.ctorrent,
+		"-s",
+		file.FQFN,
+		"-e",
+		"4",
+		"-p",
+		"8999",
+		tmp.Name())
 	self.seedStartLock.Unlock()
 
 	// TODO: Read from output pipes, because they could fill up?
 
 	go func() {
-		logdebug("Seed starting: %s", file.Name)
+		LogDebug("Seed starting: %s", file.Name)
 		file.SeedCommand.Run()
-		logdebug("Seed exited: %s", file.Name)
+		LogDebug("Seed exited: %s", file.Name)
 
 		// Try to clean up temporary file.
 		tmp.Close()
@@ -147,7 +156,7 @@ func (self *Tracker) startSeed(file *File, metadata *Metadata) {
 // out to the requestors.
 // TODO: how to return 404 etc from here?
 func (self *Tracker) handleServe(w http.ResponseWriter, r *http.Request) {
-	logdebug("Request: %s", r.URL.RequestURI())
+	LogDebug("Request: %s", r.URL.RequestURI())
 	pieces := strings.SplitN(r.URL.RequestURI(), "?", 2)
 	if len(pieces) != 2 {
 		io.WriteString(w, "invalid request")
@@ -160,7 +169,7 @@ func (self *Tracker) handleServe(w http.ResponseWriter, r *http.Request) {
 
 // handleServeLatest is the endpoint that is responsible for serving the latest file that was updated
 func (self *Tracker) handleServeLastUpdated(w http.ResponseWriter, r *http.Request) {
-	logdebug("Request: %s", r.URL.RequestURI())
+	LogDebug("Request: %s", r.URL.RequestURI())
 
 	var query_watchers []*Watcher
 
@@ -198,7 +207,7 @@ func (self *Tracker) serveFile(w http.ResponseWriter, r *http.Request, file *Fil
 		// replaced, so we keep checking a structure that never will get filled in since it's no
 		// longer active.
 		if file.MetadataInfo == nil {
-			logdebug("Request for missing metadata on %s. Sleeping.", file.Name)
+			LogDebug("Request for missing metadata on %v. Sleeping.", file.Name)
 			time.Sleep(1 * time.Second)
 			continue
 		}
@@ -217,7 +226,7 @@ func (self *Tracker) serveFile(w http.ResponseWriter, r *http.Request, file *Fil
 
 	err := bencode.Marshal(w, md)
 	if err != nil {
-		logerror("Failed to bencode %s: %s", file.Name, err)
+		LogError("Failed to bencode %s: %s", file.Name, err)
 	}
 }
 
@@ -240,7 +249,7 @@ func parsePeer(r *http.Request, values url.Values) (*Peer, error) {
 		// TODO: This seems fragile.
 		addr := strings.Split(r.RemoteAddr, ":")
 		if len(addr) != 2 {
-			logfatal("Got weird address: %s", r.RemoteAddr)
+			LogFatal("Got weird address: %s", r.RemoteAddr)
 		}
 		ip = []string{addr[0]}
 	}
@@ -267,7 +276,7 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, err.Error())
 		return
 	}
-	logdebug("Request from peer at %s:%d.", peer.Ip, peer.Port)
+	LogDebug("Request from peer at %s:%d.", peer.Ip, peer.Port)
 
 	// Get other arguments and validate them.
 	var info_hash string
@@ -337,7 +346,7 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 
 	// If they're stopping, then remove this peer from the valid list.
 	if event == "stopped" {
-		loginfo("Peer %s:%d is leaving the swarm.", peer.Ip, peer.Port)
+		LogInfo("Peer %s:%d is leaving the swarm.", peer.Ip, peer.Port)
 		delete(peers, peer.Id)
 		delete(peerseen, peer.Id)
 	}
@@ -356,24 +365,27 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		outPeers = append(outPeers, tmpPeer)
-		logdebug("[%s:%d] peer %s:%d", peer.Ip, peer.Port, tmpPeer.Ip, tmpPeer.Port)
+		LogDebug("[%s:%d] peer %s:%d", peer.Ip, peer.Port, tmpPeer.Ip, tmpPeer.Port)
 	}
-	loginfo("Giving peer %s:%d a list of %d peers (out of %d).",
+	LogInfo("Giving peer %s:%d a list of %d peers (out of %d).",
 		peer.Ip, peer.Port, len(outPeers), len(peers))
 
 	// Build the output dictionary and return it.
 	err = bencode.Marshal(w, PeerResponse{Interval: rand.Intn(120) + 300, Peers: outPeers})
 	if err != nil {
-		logerror("Failed to bencode: %s", err)
+		LogError("Failed to bencode: %s", err)
 	}
 }
 
 // starTracker spins up a tracker on a given ip:port for the given set of watchers.
-func startTracker(ip string, port int, watchers map[string]*Watcher) *Tracker {
+func StartTracker(ip string, port int,
+	ctorrentPath string,
+	watchers map[string]*Watcher) *Tracker {
 	tracker := &Tracker{
 		PeerList: make(map[string]map[string]Peer),
 		PeerSeen: make(map[string]map[string]time.Time),
 		watchers: watchers,
+		ctorrent: ctorrentPath,
 	}
 
 	http.HandleFunc("/serve", tracker.handleServe)
@@ -382,7 +394,7 @@ func startTracker(ip string, port int, watchers map[string]*Watcher) *Tracker {
 
 	go func() {
 		err := http.ListenAndServe(fmt.Sprintf("%s:%d", ip, port), nil)
-		logfatal("HTTP server exited: %s", err)
+		LogFatal("HTTP server exited: %s", err)
 	}()
 
 	return tracker

@@ -8,7 +8,7 @@
  *
  */
 
-package main
+package torrent
 
 import (
 	"bytes"
@@ -113,13 +113,13 @@ func GenerateMetadataInfo(fqfn string) (*MetadataInfo, error) {
 	cache_info, err := os.Stat(cache_fqfn)
 	if err == nil && cache_info != nil {
 		if info.ModTime().After(cache_info.ModTime()) {
-			logdebug("Cache invalid: %s updated more recently than %s", fqfn, cache_fqfn)
+			LogDebug("Cache invalid: %s updated more recently than %s", fqfn, cache_fqfn)
 		} else {
 			cache_bytes, err = ioutil.ReadFile(cache_fqfn)
 			if err == nil {
-				logdebug("Loaded %d cached bytes from %s.", len(cache_bytes), cache_fqfn)
+				LogDebug("Loaded %d cached bytes from %s.", len(cache_bytes), cache_fqfn)
 				if len(cache_bytes) != hashCount*20 {
-					logerror("Cache invalid: length does not match expected size!")
+					LogError("Cache invalid: length does not match expected size!")
 				} else {
 					use_cache = true
 				}
@@ -139,23 +139,27 @@ func GenerateMetadataInfo(fqfn string) (*MetadataInfo, error) {
 		var err error
 		hashes, bytesRead, err = makeHashes(file, info.Size())
 		if err != nil {
-			logfatal("Failed to make hashes for file: %s", err)
+			LogFatal("Failed to make hashes for file: %s", err)
+			return nil, err
 		}
 
 		// Final sanity check: bytesRead should exactly equal the file size.
 		if int64(bytesRead) != info.Size() {
-			logfatal("Read %d, size %d... mismatch!", bytesRead, info.Size())
+			LogFatal("Read %d, size %d... mismatch!", bytesRead, info.Size())
+			// TODO make better message here
+			return nil, errors.New("bytesRead invalid")
 		}
 
 		// Write out cache file.
 		if err := ioutil.WriteFile(cache_fqfn, bytes.Join(hashes, []byte{}), 0644); err != nil {
-			logerror("Failed to write cache file: %s", err)
+			LogError("Failed to write cache file: %s", err)
+			return nil, err
 		}
 	}
 
-	logdebug("Generated (or cached) metadata for %s:", fqfn)
-	logdebug(" * Pieces:     %d * %d bytes", hashCount, PIECE_LENGTH)
-	logdebug(" * First hash: %s", hex.EncodeToString(hashes[0]))
+	LogDebug("Generated (or cached) metadata for %s:", fqfn)
+	LogDebug(" * Pieces:     %d * %d bytes", hashCount, PIECE_LENGTH)
+	LogDebug(" * First hash: %s", hex.EncodeToString(hashes[0]))
 
 	// Build and return metadata structure, after caching it.
 	return &MetadataInfo{
