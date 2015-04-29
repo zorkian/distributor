@@ -36,6 +36,7 @@ type File struct {
 	ModTime      time.Time     // Modification time.
 	MetadataInfo *MetadataInfo // Reference to our metadata.
 	SeedCommand  *exec.Cmd     // Owned by the Tracker methods.
+	Lock         sync.Mutex
 }
 
 // GetFile returns, given a full path filename, either a pointer to a valid file structure or a
@@ -78,9 +79,12 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 		}
 
 		// If we already have metadata, we also want to check if the file hasn't been modified
+		file.Lock.Lock()
 		if file.MetadataInfo != nil && file.ModTime == info.ModTime() && file.Size == info.Size() {
+			file.Lock.Unlock()
 			continue
 		}
+		file.Lock.Unlock()
 
 		mdinfo, err := GenerateMetadataInfo(file.FQFN)
 		if err != nil {
@@ -101,7 +105,9 @@ func (self *Watcher) metadataGenerator(metaChannel chan string) {
 
 		file.Size = info.Size()
 		file.ModTime = info.ModTime()
+		file.Lock.Lock()
 		file.MetadataInfo = mdinfo
+		file.Lock.Unlock()
 	}
 }
 
@@ -150,6 +156,7 @@ func (self *Watcher) updateChannelHandler(updates chan string) {
 						self.Files[localfn] = &File{
 							Name: name,
 							FQFN: fqfn,
+							// Lock is automatically initialized to unlocked mutex.
 						}
 						requestMetadata = true
 					}
