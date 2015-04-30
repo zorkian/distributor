@@ -82,10 +82,12 @@ func (self *Tracker) findLastUpdatedFile(watchers []*Watcher) *File {
 	var last_updated *File = nil
 	for _, watcher := range watchers {
 		for _, file := range watcher.GetFiles() {
+			file.Lock.Lock()
 			if file.MetadataInfo == nil {
+				file.Lock.Unlock()
 				continue
 			}
-
+			file.Lock.Unlock()
 			if last_updated == nil || file.ModTime.After(last_updated.ModTime) {
 				last_updated = file
 			}
@@ -206,19 +208,24 @@ func (self *Tracker) serveFile(w http.ResponseWriter, r *http.Request, file *Fil
 		// TODO: This could run infinitely in a case where the file is requested and deleted or
 		// replaced, so we keep checking a structure that never will get filled in since it's no
 		// longer active.
+		file.Lock.Lock()
 		if file.MetadataInfo == nil {
+			file.Lock.Unlock()
 			LogDebug("Request for missing metadata on %v. Sleeping.", file.Name)
 			time.Sleep(1 * time.Second)
 			continue
 		}
+		file.Lock.Unlock()
 		break
 	}
 
+	file.Lock.Lock()
 	md := Metadata{
 		// Using Host like this is probably safe, but is potentially a hack.
 		Announce: fmt.Sprintf("http://%s/announce", r.Host),
 		Info:     *file.MetadataInfo,
 	}
+	file.Lock.Unlock()
 
 	if file.SeedCommand == nil {
 		self.startSeed(file, &md)
