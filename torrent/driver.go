@@ -8,13 +8,14 @@ import (
 )
 
 type Distributor struct {
-	dir      string
-	ctorrent string
-	address  string
-	port     int
-	quitChan chan bool
-	watchers map[string]*Watcher
-	tracker  *Tracker
+	dir       string
+	ctorrent  string
+	address   string
+	port      int
+	quitChan  chan bool
+	watchers  map[string]*Watcher
+	tracker   *Tracker
+	verbosity Verbosity
 }
 
 func NewDistributor(
