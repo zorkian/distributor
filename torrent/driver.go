@@ -21,7 +21,9 @@ func NewDistributor(
 	dir string,
 	ctorrentPath string,
 	address string,
-	port int) (*Distributor, error) {
+	port int,
+	verbosity Verbosity) (*Distributor, error) {
+	SetLoggingVerbosity(verbosity)
 	info, err := os.Stat(dir)
 	if err != nil {
 		LogError("serve path does not exist: %s", err)
@@ -53,6 +55,7 @@ func (dist *Distributor) Run() {
 	// The basic flow is that we set up a tracker, which listens on a port for HTTP requests. The
 	// tracker coordinates peers and torrent files. To each tracker we can attach a set of watchers,
 	// which handle monitoring of files.
+	SetLoggingVerbosity(dist.verbosity)
 	dist.watchers = map[string]*Watcher{
 		path.Base(dist.dir): StartWatcher(dist.dir),
 	}

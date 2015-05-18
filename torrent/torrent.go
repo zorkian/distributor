@@ -129,7 +129,7 @@ func GenerateMetadataInfo(fqfn string) (*MetadataInfo, error) {
 
 	// If we had a cache, break it into the hashes.
 	if use_cache {
-		hashes := make([][]byte, 0, hashCount)
+		hashes = make([][]byte, 0, hashCount)
 		for i := 0; i < hashCount; i++ {
 			idx := i * 20
 			hashes = append(hashes, cache_bytes[idx:idx+20])
@@ -156,9 +156,9 @@ func GenerateMetadataInfo(fqfn string) (*MetadataInfo, error) {
 			return nil, err
 		}
 	}
-
 	LogDebug("Generated (or cached) metadata for %s:", fqfn)
 	LogDebug(" * Pieces:     %d * %d bytes", hashCount, PIECE_LENGTH)
+	LogDebug(" * Hashes:     %d", len(hashes))
 	LogDebug(" * First hash: %s", hex.EncodeToString(hashes[0]))
 
 	// Build and return metadata structure, after caching it.
