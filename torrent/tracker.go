@@ -200,7 +200,7 @@ func (self *Tracker) handleServeLastUpdated(w http.ResponseWriter, r *http.Reque
 
 func (self *Tracker) serveFile(w http.ResponseWriter, r *http.Request, file *File) {
 	if file == nil {
-		io.WriteString(w, "file not found")
+		http.Error(w, "File not found", 404)
 		return
 	}
 
