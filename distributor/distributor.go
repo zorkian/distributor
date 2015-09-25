@@ -11,7 +11,7 @@
 package main
 
 import (
-	"distributor/torrent"
+	"github.com/zorkian/distributor/torrent"
 	"flag"
 	"fmt"
 	"os"
