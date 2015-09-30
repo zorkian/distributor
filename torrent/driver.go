@@ -43,11 +43,12 @@ func NewDistributor(
 		return nil, errors.New("port must be in range 1..65535")
 	}
 	return &Distributor{
-		dir:      dir,
-		ctorrent: ctorrentPath,
-		address:  address,
-		port:     port,
-		quitChan: make(chan bool),
+		dir:       dir,
+		ctorrent:  ctorrentPath,
+		address:   address,
+		port:      port,
+		quitChan:  make(chan bool),
+		verbosity: verbosity,
 	}, nil
 
 }
