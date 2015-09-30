@@ -328,14 +328,14 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 		peerage = time.Since(peerlastseen)
 	}
 
-	// Add this peer to the set if they don't exist, plus possibly purge other peers on this IP.
+	// Add this peer to the set if they don't exist, plus possibly purge other peers on this IP and port.
 	if _, ok := peers[peer.Id]; !ok {
-		// Remove any other peers on this IP address. This is kind of a hack since we don't have
+		// Remove any other peers on this IP address and port. This is kind of a hack since we don't have
 		// "last reported time" at the moment. If a new peer starts up on a host, then we remove
 		// the other one.
 		toRemove := make([]string, 0, 10)
 		for id, tmpPeer := range peers {
-			if tmpPeer.Ip == peer.Ip || (pok && peerage > 300*time.Second) {
+			if (tmpPeer.Ip == peer.Ip && tmpPeer.Port == peer.Port) || (pok && peerage > 300*time.Second) {
 				toRemove = append(toRemove, id)
 			}
 		}
@@ -366,7 +366,7 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		if tmpPeer.Ip == peer.Ip {
+		if tmpPeer.Ip == peer.Ip && tmpPeer.Port == peer.Port {
 			// This helps avoid giving peers connections to their own machine, which seems
 			// to confuse ctorrent. It seems to mostly affect small clusters.
 			continue
