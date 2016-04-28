@@ -121,6 +121,11 @@ func (self *Watcher) updateChannelHandler(updates chan string) {
 	for {
 		fqfn := <-updates
 
+		// We don't handle the watched dir itself.
+		if fqfn == self.Directory {
+			continue
+		}
+
 		if !strings.HasPrefix(fqfn, self.Directory) {
 			LogError("File %s not in watched dir %s!", fqfn, self.Directory)
 			continue
