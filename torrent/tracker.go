@@ -14,7 +14,6 @@ package torrent
 import (
 	"errors"
 	"fmt"
-	bencode "github.com/jackpal/bencode-go"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -26,6 +25,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	bencode "github.com/jackpal/bencode-go"
 )
 
 type Peer struct {
@@ -322,12 +323,6 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 		self.PeerSeen[info_hash] = peerseen
 	}
 
-	var peerage time.Duration
-	peerlastseen, pok := peerseen[peer.Id]
-	if pok {
-		peerage = time.Since(peerlastseen)
-	}
-
 	// Add this peer to the set if they don't exist, plus possibly purge other peers on this IP and port.
 	if _, ok := peers[peer.Id]; !ok {
 		// Remove any other peers on this IP address and port. This is kind of a hack since we don't have
@@ -335,7 +330,7 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 		// the other one.
 		toRemove := make([]string, 0, 10)
 		for id, tmpPeer := range peers {
-			if (tmpPeer.Ip == peer.Ip && tmpPeer.Port == peer.Port) || (pok && peerage > 300*time.Second) {
+			if tmpPeer.Ip == peer.Ip && tmpPeer.Port == peer.Port {
 				toRemove = append(toRemove, id)
 			}
 		}
@@ -350,6 +345,15 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 
 	// Always update the timestamp so we know when people report.
 	peerseen[peer.Id] = time.Now()
+
+	// Remove old peers.
+	for id := range peers {
+		peerlastseen, pok := peerseen[id]
+		if pok && time.Since(peerlastseen) > 300*time.Second {
+			delete(peers, id)
+			delete(peerseen, id)
+		}
+	}
 
 	// If they're stopping, then remove this peer from the valid list.
 	if event == "stopped" {
