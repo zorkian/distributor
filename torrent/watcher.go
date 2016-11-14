@@ -9,13 +9,14 @@
 package torrent
 
 import (
-	"github.com/howeyc/fsnotify"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 // Watcher is instantiated for each directory we're serving files for.
@@ -188,7 +189,7 @@ func (self *Watcher) walkAndWatch(dir string, updates chan string) {
 		}
 		if info.IsDir() {
 			LogInfo("Watching directory: %s", fqfn)
-			if err := self.Watcher.Watch(fqfn); err != nil {
+			if err := self.Watcher.Add(fqfn); err != nil {
 				LogFatal("Watch: %s", err)
 			}
 		} else {
@@ -210,11 +211,11 @@ func (self *Watcher) watch() {
 	// This is the main goroutine that actually processes events.
 	for {
 		select {
-		case ev := <-self.Watcher.Event:
+		case ev := <-self.Watcher.Events:
 			// Regardless of what the event is, just let the update channel know something has
 			// updated. It can infer what it needs to do based on the present state.
 			updateChannel <- ev.Name
-		case err := <-self.Watcher.Error:
+		case err := <-self.Watcher.Errors:
 			// Should this be exiting the loop??
 			LogError("Watcher error: %s", err)
 		case _ = <-self.QuitChannel:
