@@ -346,15 +346,6 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 	// Always update the timestamp so we know when people report.
 	peerseen[peer.Id] = time.Now()
 
-	// Remove old peers.
-	for id := range peers {
-		peerlastseen, pok := peerseen[id]
-		if pok && time.Since(peerlastseen) > 300*time.Second {
-			delete(peers, id)
-			delete(peerseen, id)
-		}
-	}
-
 	// If they're stopping, then remove this peer from the valid list.
 	if event == "stopped" {
 		LogInfo("Peer %s:%d is leaving the swarm.", peer.Ip, peer.Port)
@@ -365,7 +356,14 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 	// We give the user back N random peers by just picking a window into our peer list.
 	ct := 0
 	outPeers := make([]Peer, 0, numwant)
-	for _, tmpPeer := range peers {
+	for id, tmpPeer := range peers {
+		// Don't hand out timed-out peers.
+		if time.Since(peerseen[id]) > 600*time.Second {
+			delete(peers, id)
+			delete(peerseen, id)
+			continue
+		}
+
 		if ct++; ct > cap(outPeers) {
 			break
 		}
@@ -382,7 +380,7 @@ func (self *Tracker) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 		peer.Ip, peer.Port, len(outPeers), len(peers))
 
 	// Build the output dictionary and return it.
-	err = bencode.Marshal(w, PeerResponse{Interval: rand.Intn(120) + 120, Peers: outPeers})
+	err = bencode.Marshal(w, PeerResponse{Interval: rand.Intn(120) + 300, Peers: outPeers})
 	if err != nil {
 		LogError("Failed to bencode: %s", err)
 	}
