@@ -54,6 +54,11 @@ func NewDistributor(
 }
 
 func (dist *Distributor) Run() {
+	dist.Start()
+	dist.Wait()
+}
+
+func (dist *Distributor) Start() {
 	// The basic flow is that we set up a tracker, which listens on a port for HTTP requests. The
 	// tracker coordinates peers and torrent files. To each tracker we can attach a set of watchers,
 	// which handle monitoring of files.
@@ -63,6 +68,9 @@ func (dist *Distributor) Run() {
 	}
 	dist.tracker = StartTracker(dist.address, dist.port, dist.ctorrent, dist.watchers)
 	LogInfo("distributing %s on %s:%d", dist.dir, dist.address, dist.port)
+}
+
+func (dist *Distributor) Wait() {
 	<-dist.quitChan
 }
 
